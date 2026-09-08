@@ -1,0 +1,12 @@
+[package]
+name = "bevy_replique"
+description = "Bevy plugin for Replique, a pure rust dialogue manager"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+replique = { workspace = true }
+thiserror = { workspace = true }

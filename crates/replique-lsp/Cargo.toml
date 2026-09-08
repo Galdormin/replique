@@ -1,0 +1,11 @@
+[package]
+name = "replique-lsp"
+description = "Langage server for Replique"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+replique = { workspace = true }
