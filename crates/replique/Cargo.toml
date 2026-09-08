@@ -1,5 +1,6 @@
 [package]
 name = "replique"
+description = "A pure Rust dialogue system"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
