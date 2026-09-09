@@ -33,6 +33,7 @@
 use std::{
     fmt::{self, Write},
     io::IsTerminal,
+    path::{Path, PathBuf},
     slice::Iter,
 };
 
@@ -352,7 +353,7 @@ impl Diagnostic {
         &self,
         src: &str,
         line_index: &LineIndex,
-        path: Option<&str>,
+        path: Option<&Path>,
         color: Color,
     ) -> String {
         let (line, byte_col) = line_index.line_col(self.span.start);
@@ -361,7 +362,8 @@ impl Diagnostic {
 
         format!(
             "{}{}:{}: {}{}[{}]{}: {}{}{}\n",
-            path.map(|p| format!("{p}:")).unwrap_or_default(),
+            path.map(|p| format!("{}:", p.display()))
+                .unwrap_or_default(),
             line + 1,
             col + 1,
             style.severity,
@@ -394,7 +396,7 @@ impl Diagnostic {
         &self,
         src: &str,
         line_index: &LineIndex,
-        path: Option<&str>,
+        path: Option<&Path>,
         color: Color,
     ) -> String {
         debug_assert!(
@@ -428,7 +430,8 @@ impl Diagnostic {
             style.reset,
             style.gutter,
             style.reset,
-            path.map(|p| format!("{p}:")).unwrap_or_default(),
+            path.map(|p| format!("{}:", p.display()))
+                .unwrap_or_default(),
             line + 1,
             col + 1,
         );
@@ -518,7 +521,7 @@ fn snippet(
 pub struct Diagnostics {
     diags: Vec<Diagnostic>,
     line_index: LineIndex,
-    path: Option<String>,
+    path: Option<PathBuf>,
     color: Color,
 }
 
@@ -535,7 +538,7 @@ impl Diagnostics {
 
     /// Attach the path shown by both renderings. Without it, they start directly at the line number.
     #[must_use]
-    pub fn with_path(mut self, path: &str) -> Self {
+    pub fn with_path(mut self, path: &Path) -> Self {
         self.path = Some(path.into());
         self
     }
@@ -660,6 +663,10 @@ mod tests {
         out
     }
 
+    fn file_path() -> Option<&'static Path> {
+        Some(Path::new("file.rep"))
+    }
+
     #[test]
     fn severity_orders_warning_before_error() {
         assert!(Severity::Warning < Severity::Error);
@@ -679,7 +686,7 @@ mod tests {
         let diag = diag(DiagnosticKind::IrregularIndentation, INDENT);
 
         assert_eq!(
-            diag.render_short(SRC, &line_index, Some("file.rep"), Color::Never),
+            diag.render_short(SRC, &line_index, file_path(), Color::Never),
             "file.rep:2:1: error[irregular-indentation]: indentation is not a multiple of the indentation width\n"
         );
     }
@@ -701,7 +708,7 @@ mod tests {
         let diag = diag(DiagnosticKind::IrregularIndentation, INDENT);
 
         assert_eq!(
-            diag.render(SRC, &line_index, Some("file.rep"), Color::Never),
+            diag.render(SRC, &line_index, file_path(), Color::Never),
             concat!(
                 "error[irregular-indentation]: indentation is not a multiple of the indentation width\n",
                 "  --> file.rep:2:1\n",
@@ -772,7 +779,7 @@ mod tests {
             Span::from_length(start, "hé".len()),
         );
 
-        let out = diag.render(src, &line_index, Some("file.rep"), Color::Never);
+        let out = diag.render(src, &line_index, file_path(), Color::Never);
 
         // 9 characters before the span, not the 11 bytes.
         assert!(out.contains("--> file.rep:1:10"), "{out}");
@@ -805,7 +812,7 @@ mod tests {
         };
 
         assert_eq!(
-            diag.render(src, &line_index, Some("file.rep"), Color::Never),
+            diag.render(src, &line_index, file_path(), Color::Never),
             concat!(
                 "error[duplicate-node-found]: node `start` is declared more than once\n",
                 "  --> file.rep:3:1\n",
@@ -847,8 +854,8 @@ mod tests {
         let line_index = LineIndex::new(SRC);
         let diag = diag(DiagnosticKind::IrregularIndentation, INDENT);
 
-        let plain = diag.render(SRC, &line_index, Some("file.rep"), Color::Never);
-        let colored = diag.render(SRC, &line_index, Some("file.rep"), Color::Always);
+        let plain = diag.render(SRC, &line_index, file_path(), Color::Never);
+        let colored = diag.render(SRC, &line_index, file_path(), Color::Always);
 
         assert!(!plain.contains('\u{1b}'), "{plain}");
         assert!(
@@ -894,7 +901,7 @@ mod tests {
                 (Span::new(12, 17), DiagnosticKind::TabIndentation),
             ],
         )
-        .with_path("file.rep");
+        .with_path(file_path().unwrap());
 
         assert_eq!(
             diags.render_short(SRC),
@@ -926,7 +933,7 @@ mod tests {
         assert!(diags.render_short(SRC).starts_with("2:1:"));
         assert!(diags.render(SRC).contains("  --> 2:1\n"));
 
-        let diags = diags.with_path("file.rep");
+        let diags = diags.with_path(file_path().unwrap());
         assert!(diags.render_short(SRC).starts_with("file.rep:2:1:"));
         assert!(diags.render(SRC).contains("  --> file.rep:2:1\n"));
     }

@@ -6,5 +6,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+readme = "README.md"
 
 [dependencies]
+replique = { workspace = true }
+
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+walkdir = "2.5"
+
+[[bin]]
+name = "replique"
+path = "src/main.rs"

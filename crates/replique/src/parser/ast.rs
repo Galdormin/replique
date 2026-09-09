@@ -259,7 +259,7 @@ impl<'a> Parser<'a> {
             }
 
             // The statement is more indented than what we expect.
-            if line.indent >= min_indent + 1 {
+            if line.indent > min_indent {
                 self.diags
                     .push(line.span, DiagnosticKind::UnexpectedIndentation);
             }
