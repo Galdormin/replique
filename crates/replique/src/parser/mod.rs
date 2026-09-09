@@ -7,6 +7,8 @@ mod command;
 pub mod diagnostic;
 mod lines;
 
+pub use ast::parse;
+
 pub const END_NODE_NAME: &str = "END";
 pub const RESERVED_NODE_NAMES: &[&str] = &[END_NODE_NAME];
 

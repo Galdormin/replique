@@ -1,0 +1,14 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "-> Partir\n    => END\n-> Rester\n    Alice: Ici."
+    choice "Partir" @2:1 "-> Partir\n    => END"
+      jump END @3:5 "=> END"
+    choice "Rester" @4:1 "-> Rester\n    Alice: Ici."
+      line Alice "Ici." @5:5 "Alice: Ici."
+
+== diagnostics ==
+(none)

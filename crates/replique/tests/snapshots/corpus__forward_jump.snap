@@ -1,0 +1,12 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  jump meeting @2:1 "=> meeting"
+node meeting
+  line Alice "On y va." @6:1 "Alice: On y va."
+
+== diagnostics ==
+(none)

@@ -226,9 +226,9 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "invalid command argument `{arg}`, expected a number, `true`, `false`, a word or a quoted string"
             ),
-            TrailingAfterCommand => {
-                f.write_str("unexpected text after the end of the command, expected nothing after `)`")
-            }
+            TrailingAfterCommand => f.write_str(
+                "unexpected text after the end of the command, expected nothing after `)`",
+            ),
             UnterminatedString => {
                 f.write_str("string is never closed, expected a `\"` before the end of the line")
             }
@@ -546,6 +546,10 @@ impl Diagnostics {
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.diags.is_empty()
     }
 
     /// Report a new [`Diagnostic`] at `span`, with no label.

@@ -1,0 +1,13 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "-> Oui\n    Alice: Bien."
+    choice "Oui" @2:1 "-> Oui\n    Alice: Bien."
+      line Alice "Bien." @3:5 "Alice: Bien."
+
+== diagnostics ==
+warning single-choice @2:1 "-> Oui\n    Alice: Bien."
+warning indented-node-end @4:5 "---"

@@ -1,0 +1,19 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Un cafe ?" @2:1 "Alice: Un cafe ?"
+  choice-group @3:1 "-> Oui\n    Bob: Sucre ?\n    -> Un\n        Alice: Voila.\n    -> Deux\n        Alice: Voila voila.\n-> Non"
+    choice "Oui" @3:1 "-> Oui\n    Bob: Sucre ?\n    -> Un\n        Alice: Voila.\n    -> Deux\n        Alice: Voila voila."
+      line Bob "Sucre ?" @4:5 "Bob: Sucre ?"
+      choice-group @5:5 "-> Un\n        Alice: Voila.\n    -> Deux\n        Alice: Voila voila."
+        choice "Un" @5:5 "-> Un\n        Alice: Voila."
+          line Alice "Voila." @6:9 "Alice: Voila."
+        choice "Deux" @7:5 "-> Deux\n        Alice: Voila voila."
+          line Alice "Voila voila." @8:9 "Alice: Voila voila."
+    choice "Non" @9:1 "-> Non"
+
+== diagnostics ==
+(none)

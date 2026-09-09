@@ -1,0 +1,19 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "un" @3:1 "Alice: un"
+  command 2fast [Int(1)] @4:4 "2fast(1)"
+  line Alice "deux" @5:1 "Alice: deux"
+  line Alice "trois" @7:1 "Alice: trois"
+  line Alice "quatre" @9:1 "Alice: quatre"
+  line Alice "cinq" @11:1 "Alice: cinq"
+
+== diagnostics ==
+error empty-command @2:1 ">>"
+error invalid-command-name @4:4 "2fast"
+error unclosed-command-args @6:4 "play(1"
+error invalid-command-argument @8:9 "1..2"
+error trailing-after-command @10:12 "oups"

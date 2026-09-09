@@ -1,0 +1,13 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node a
+  line Alice "un" @2:1 "Alice: un"
+node b
+  line Alice "deux" @4:1 "Alice: deux"
+
+== diagnostics ==
+error unclosed-node @1:1 ":= a"
+  label the next node starts here @3:4 "b"

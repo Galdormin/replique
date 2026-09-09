@@ -1,0 +1,9 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+
+== diagnostics ==
+warning empty-node @1:1 ":= start"

@@ -1,0 +1,12 @@
+:= start
+Alice: Salut, tu viens ?
+-> Oui
+    Bob: Avec plaisir.
+    => meeting
+-> Non
+    Bob: Une autre fois.
+---
+
+:= meeting
+Alice: On y va.
+---

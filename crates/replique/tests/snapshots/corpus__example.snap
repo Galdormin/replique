@@ -1,0 +1,18 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Salut, tu viens ?" @2:1 "Alice: Salut, tu viens ?"
+  choice-group @3:1 "-> Oui\n    Bob: Avec plaisir.\n    => meeting\n-> Non\n    Bob: Une autre fois."
+    choice "Oui" @3:1 "-> Oui\n    Bob: Avec plaisir.\n    => meeting"
+      line Bob "Avec plaisir." @4:5 "Bob: Avec plaisir."
+      jump meeting @5:5 "=> meeting"
+    choice "Non" @6:1 "-> Non\n    Bob: Une autre fois."
+      line Bob "Une autre fois." @7:5 "Bob: Une autre fois."
+node meeting
+  line Alice "On y va." @11:1 "Alice: On y va."
+
+== diagnostics ==
+(none)

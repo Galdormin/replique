@@ -1,0 +1,10 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Salut" @3:1 "Alice: Salut"
+
+== diagnostics ==
+error stray-node-end @1:1 "---"

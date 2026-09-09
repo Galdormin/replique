@@ -1,0 +1,12 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Ca continue." @5:1 "Alice: Ca continue."
+
+== diagnostics ==
+error malformed-marker @2:1 "----"
+error malformed-marker @3:1 "==> ailleurs"
+error malformed-marker @4:1 "->> pas un choix"

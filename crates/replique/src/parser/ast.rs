@@ -259,7 +259,7 @@ impl<'a> Parser<'a> {
             }
 
             // The statement is more indented than what we expect.
-            if line.indent > min_indent + 1 {
+            if line.indent >= min_indent + 1 {
                 self.diags
                     .push(line.span, DiagnosticKind::UnexpectedIndentation);
             }
@@ -619,10 +619,7 @@ mod tests {
         let parsed = parse(":= start\n=>\nAlice: ok\n---\n");
 
         assert_eq!(parsed.nodes[0].body.len(), 1);
-        assert!(matches!(
-            parsed.nodes[0].body[0].kind,
-            StmtKind::Say { .. }
-        ));
+        assert!(matches!(parsed.nodes[0].body[0].kind, StmtKind::Say { .. }));
         assert_eq!(
             parsed.diagnostics.iter().next().unwrap().kind,
             DiagnosticKind::EmptyJump
@@ -765,10 +762,7 @@ mod tests {
         let parsed = parse(src);
 
         assert_eq!(parsed.nodes[0].body.len(), 1);
-        assert!(matches!(
-            parsed.nodes[0].body[0].kind,
-            StmtKind::Say { .. }
-        ));
+        assert!(matches!(parsed.nodes[0].body[0].kind, StmtKind::Say { .. }));
     }
 
     #[test]

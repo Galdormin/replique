@@ -1,0 +1,19 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  command fade_in [] @2:4 "fade_in"
+  line Alice "Tu entends ça ?" @3:1 "Alice: Tu entends ça ?"
+  command play [String("cloche"), Float(0.5), Bool(true)] @4:4 "play(\"cloche\", 0.5, true)"
+  choice-group @5:1 "-> Oui\n    >> set_flag(entendu)\n    Bob: Moi aussi.\n-> Non\n    >> set_flag(sourd, -1)"
+    choice "Oui" @5:1 "-> Oui\n    >> set_flag(entendu)\n    Bob: Moi aussi."
+      command set_flag [String("entendu")] @6:8 "set_flag(entendu)"
+      line Bob "Moi aussi." @7:5 "Bob: Moi aussi."
+    choice "Non" @8:1 "-> Non\n    >> set_flag(sourd, -1)"
+      command set_flag [String("sourd"), Int(-1)] @9:8 "set_flag(sourd, -1)"
+  command fade_out [] @10:4 "fade_out()"
+
+== diagnostics ==
+(none)

@@ -1,0 +1,13 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "->\n->"
+    choice "" @2:1 "->"
+    choice "" @3:1 "->"
+
+== diagnostics ==
+error empty-choice-text @2:1 "->"
+error empty-choice-text @3:1 "->"

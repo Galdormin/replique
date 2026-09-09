@@ -1,0 +1,15 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Premiere version." @2:1 "Alice: Premiere version."
+node autre
+  line Alice "Au milieu." @6:1 "Alice: Au milieu."
+node start
+  line Alice "Seconde version." @10:1 "Alice: Seconde version."
+
+== diagnostics ==
+error duplicate-node-found @1:4 "start"
+error duplicate-node-found @9:4 "start"

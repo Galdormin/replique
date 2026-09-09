@@ -1,0 +1,11 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Salut" @2:1 "Alice: Salut"
+  line Bob "Coucou" @3:5 "Bob: Coucou"
+
+== diagnostics ==
+warning unexpected-indentation @3:5 "Bob: Coucou"

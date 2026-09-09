@@ -1,0 +1,14 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "-> Partir\n    => nulle_part\n-> Rester\n    Alice: Ici."
+    choice "Partir" @2:1 "-> Partir\n    => nulle_part"
+      jump nulle_part @3:5 "=> nulle_part"
+    choice "Rester" @4:1 "-> Rester\n    Alice: Ici."
+      line Alice "Ici." @5:5 "Alice: Ici."
+
+== diagnostics ==
+error jump-unknown-node @3:5 "=> nulle_part"

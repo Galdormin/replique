@@ -8,3 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+insta = "1.48"
+proptest = "1.11"

@@ -1,0 +1,10 @@
+:= start
+Alice: Un cafe ?
+-> Oui
+    Bob: Sucre ?
+    -> Un
+        Alice: Voila.
+    -> Deux
+        Alice: Voila voila.
+-> Non
+---

@@ -1,0 +1,16 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "-> A\n-> B"
+    choice "A" @2:1 "-> A"
+    choice "B" @3:1 "-> B"
+  line Alice "Ensuite." @4:1 "Alice: Ensuite."
+  choice-group @5:1 "-> C\n-> D"
+    choice "C" @5:1 "-> C"
+    choice "D" @6:1 "-> D"
+
+== diagnostics ==
+(none)

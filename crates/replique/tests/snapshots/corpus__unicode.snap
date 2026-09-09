@@ -1,0 +1,11 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node depart
+  line Élise "Où vas-tu ? 🌙" @2:1 "Élise: Où vas-tu ? 🌙"
+  line - "Le vent se leva — puis rien." @3:1 "Le vent se leva — puis rien."
+
+== diagnostics ==
+(none)

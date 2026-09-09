@@ -1,0 +1,12 @@
+:= start
+>>
+Alice: un
+>> 2fast(1)
+Alice: deux
+>> play(1
+Alice: trois
+>> play(1..2)
+Alice: quatre
+>> play(1) oups
+Alice: cinq
+---
