@@ -15,12 +15,16 @@
 //! by node with a `DialogueNodeBuilder`, and then run by a
 //! [`DialogueVm`](crate::vm::DialogueVm).
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
-use crate::parser::{Spanned, ast};
+use crate::{
+    dialogue::expr::Expr,
+    parser::{Spanned, ast},
+};
 
 pub(crate) mod builder;
 pub mod compiler;
+pub(crate) mod expr;
 
 /// All the [`DialogueNode`] of a `.rep` file, looked up by name.
 ///
@@ -183,6 +187,45 @@ pub(crate) struct ChoiceDef {
     pub target: StepId,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ValueType {
+    Bool,
+    Int,
+    Float,
+    String,
+}
+
+impl ValueType {
+    pub fn type_of(value: &Value) -> Self {
+        match value {
+            Value::Bool(_) => Self::Bool,
+            Value::Int(_) => Self::Int,
+            Value::Float(_) => Self::Float,
+            Value::String(_) => Self::String,
+        }
+    }
+}
+
+impl ValueType {
+    /// Whether values of this type take part in arithmetic and comparisons.
+    pub fn is_number(&self) -> bool {
+        matches!(self, Self::Int | Self::Float)
+    }
+}
+
+impl fmt::Display for ValueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let type_str = match self {
+            ValueType::Bool => "bool",
+            ValueType::Int => "int",
+            ValueType::Float => "float",
+            ValueType::String => "string",
+        };
+
+        f.write_str(type_str)
+    }
+}
+
 /// An argument of a command.
 ///
 /// The same shape as [`ast::Value`], minus the span.
@@ -208,6 +251,13 @@ impl From<ast::Value> for Value {
     }
 }
 
+impl Value {
+    /// Return the [`ValueType`] of the [`Value`]
+    pub fn vtype(&self) -> ValueType {
+        ValueType::type_of(self)
+    }
+}
+
 /// A `>> name(args...)` call, handed to the host untouched.
 ///
 /// Nothing here is checked: an unknown name, or a wrong number of arguments,
@@ -216,5 +266,5 @@ impl From<ast::Value> for Value {
 #[derive(Debug, Clone)]
 pub(crate) struct Command {
     pub name: String,
-    pub args: Vec<Value>,
+    pub args: Vec<Expr>,
 }

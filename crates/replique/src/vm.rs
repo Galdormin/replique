@@ -38,7 +38,10 @@
 
 use thiserror::Error;
 
-use crate::dialogue::{Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Value};
+use crate::dialogue::{
+    Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Value,
+    expr::{EvalError, Expr},
+};
 
 /// How many steps a single [`DialogueVm::start`] or [`DialogueVm::resume`] may
 /// walk before giving up with [`VmError::StepLimitExceeded`].
@@ -157,6 +160,9 @@ pub enum VmError {
     /// which means the dialogue loops on itself.
     #[error("Step limit exceeded")]
     StepLimitExceeded,
+    /// Error when evaluating expression
+    #[error("EvalError: {0}")]
+    ExprEvalError(#[from] EvalError),
 }
 
 /// State of a [`DialogueVm`] between two calls.
@@ -246,7 +252,11 @@ impl DialogueVm {
                     };
                     return Ok(DialogueEvent::Command {
                         name: command.name,
-                        args: command.args,
+                        args: command
+                            .args
+                            .into_iter()
+                            .map(|e| self.eval(e))
+                            .collect::<Result<_, _>>()?,
                     });
                 }
                 StepKind::Choice { choices } => {
@@ -298,13 +308,18 @@ impl DialogueVm {
     fn get_step_at(&self, cursor: &Cursor) -> Result<&Step, VmError> {
         Ok(self.get_node_at(cursor)?.get_step(&cursor.step))
     }
+
+    /// Eval an Expr
+    fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
+        expr.eval()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dialogue::builder::DialogueNodeBuilder;
-    use crate::dialogue::{ChoiceDef, Command, TextLine};
+    use crate::dialogue::{ChoiceDef, Command, TextLine, expr::Expr};
 
     fn line(speaker: Option<&str>, text: &str, next: StepId) -> StepKind {
         StepKind::Say {
@@ -331,7 +346,10 @@ mod tests {
         let cmd = b.push(StepKind::Command {
             command: Command {
                 name: "play".into(),
-                args: vec![Value::String("bell".into()), Value::Float(0.5)],
+                args: vec![
+                    Expr::Litteral(Value::String("bell".into())),
+                    Expr::Litteral(Value::Float(0.5)),
+                ],
             },
             next: l1,
         });

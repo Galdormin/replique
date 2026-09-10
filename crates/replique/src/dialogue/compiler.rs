@@ -23,7 +23,7 @@
 use crate::{
     dialogue::{
         ChoiceDef, Command, Dialogue, DialogueNode, StepId, StepKind, TextLine,
-        builder::DialogueNodeBuilder,
+        builder::{BuildError, DialogueNodeBuilder},
     },
     parser::{
         END_NODE_NAME, Parsed,
@@ -80,9 +80,9 @@ fn compile_node(node: NodeDecl) -> DialogueNode {
     let mut builder = DialogueNodeBuilder::default();
 
     let end = builder.push(StepKind::End);
-    let start = build_block(&mut builder, node.body, end);
 
-    // BuildError here are bugs and will panic
+    // BuildError here are bugs and should panic
+    let start = build_block(&mut builder, node.body, end).unwrap();
     builder.build(node.name.into(), start).unwrap()
 }
 
@@ -95,7 +95,11 @@ fn compile_node(node: NodeDecl) -> DialogueNode {
 ///
 /// An empty body pushes nothing and gives `last_id` straight back, which is how
 /// a choice with no body simply carries on.
-fn build_block(builder: &mut DialogueNodeBuilder, body: Vec<Stmt>, last_id: StepId) -> StepId {
+fn build_block(
+    builder: &mut DialogueNodeBuilder,
+    body: Vec<Stmt>,
+    last_id: StepId,
+) -> Result<StepId, BuildError> {
     let mut current_id = last_id;
     for stmt in body.into_iter().rev() {
         current_id = match stmt.kind {
@@ -109,7 +113,10 @@ fn build_block(builder: &mut DialogueNodeBuilder, body: Vec<Stmt>, last_id: Step
             StmtKind::Command { name, args } => builder.push(StepKind::Command {
                 command: Command {
                     name: name.into_inner(),
-                    args: args.into_iter().map(|v| v.value.into()).collect(),
+                    args: args
+                        .into_iter()
+                        .map(|v| v.value.try_into())
+                        .collect::<Result<_, _>>()?,
                 },
                 next: current_id,
             }),
@@ -121,15 +128,17 @@ fn build_block(builder: &mut DialogueNodeBuilder, body: Vec<Stmt>, last_id: Step
             StmtKind::Choice { choices } => {
                 let choices = choices
                     .into_iter()
-                    .map(|c| ChoiceDef {
-                        text: c.text.into_inner(),
-                        target: build_block(builder, c.body, current_id),
+                    .map(|c| {
+                        build_block(builder, c.body, current_id).map(|target| ChoiceDef {
+                            text: c.text.into_inner(),
+                            target,
+                        })
                     })
-                    .collect();
+                    .collect::<Result<_, _>>()?;
                 builder.push(StepKind::Choice { choices })
             }
         };
     }
 
-    current_id
+    Ok(current_id)
 }

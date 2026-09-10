@@ -70,11 +70,17 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                 let _ = writeln!(out, "{pad}jump {} {}", target.value, at(src, stmt.span));
             }
             StmtKind::Command { name, args } => {
+                // Arguments are shown as the text they cover: an expression
+                // debug-prints its own spans, which the doc above forbids.
+                let args = args
+                    .iter()
+                    .map(|arg| &src.raw[arg.span.start..arg.span.end])
+                    .collect::<Vec<_>>();
                 let _ = writeln!(
                     out,
                     "{pad}command {} {:?} {}",
                     name.value,
-                    args.iter().map(|s| &s.value).collect::<Vec<_>>(),
+                    args,
                     at(src, stmt.span)
                 );
             }

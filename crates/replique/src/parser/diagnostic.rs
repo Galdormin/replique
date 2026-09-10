@@ -102,16 +102,30 @@ pub enum DiagnosticKind {
     ReservedNodeName(String),
     /// `>>` without a name.
     EmptyCommand,
+    /// `>>` followed by something that is not a call: `>> $gold + 1`.
+    ExpectedCommand,
     /// Command name that is not `[A-Za-z_][A-Za-z0-9_]*`.
     InvalidCommandName(String),
     /// `(` never closed.
-    UnclosedCommandArgs,
+    UnclosedCall,
     /// An argument that is not a value: `1..2`, `"oups`, ...
     InvalidCommandArgument(String),
     /// Text left after the `)`: `>> command() some text`.
     TrailingAfterCommand,
     /// A `"` opened a string that the line never closes.
     UnterminatedString,
+    /// `$` without a name after it.
+    EmptyVariableName,
+    /// Digits that do not make a number: `1..2`, `1.2.3`, ...
+    InvalidNumber(String),
+    /// A character that starts no token of an expression.
+    UnknownExpressionCharacter(char),
+    /// An expression is missing where one is required: `1 +`, `$gold and`, ...
+    ExpectedExpression,
+    /// `(` never closed inside an expression.
+    UnclosedParenthesis,
+    /// Two arguments of a function with no `,` between them: `max(1 2)`.
+    ExpectedArgSeparator,
 }
 
 impl DiagnosticKind {
@@ -133,17 +147,24 @@ impl DiagnosticKind {
             | JumpToUnknownNode(_)
             | ReservedNodeName(_)
             | EmptyCommand
+            | ExpectedCommand
             | InvalidCommandName(_)
-            | UnclosedCommandArgs
+            | UnclosedCall
             | InvalidCommandArgument(_)
-            | TrailingAfterCommand
-            | UnterminatedString => Severity::Error,
+            | UnterminatedString
+            | EmptyVariableName
+            | InvalidNumber(_)
+            | UnknownExpressionCharacter(_)
+            | ExpectedExpression
+            | UnclosedParenthesis
+            | ExpectedArgSeparator => Severity::Error,
 
             EmptyNode
             | SingleChoice
             | UnexpectedIndentation
             | IndentedNodeStart
-            | IndentedNodeEnd => Severity::Warning,
+            | IndentedNodeEnd
+            | TrailingAfterCommand => Severity::Warning,
         }
     }
 
@@ -170,11 +191,18 @@ impl DiagnosticKind {
             JumpToUnknownNode { .. } => "jump-unknown-node",
             ReservedNodeName { .. } => "reserved-node-name",
             EmptyCommand => "empty-command",
+            ExpectedCommand => "expected-command",
             InvalidCommandName(_) => "invalid-command-name",
-            UnclosedCommandArgs => "unclosed-command-args",
+            UnclosedCall => "unclosed-call",
             InvalidCommandArgument(_) => "invalid-command-argument",
             TrailingAfterCommand => "trailing-after-command",
             UnterminatedString => "unterminated-string",
+            EmptyVariableName => "empty-variable-name",
+            InvalidNumber(_) => "invalid-number",
+            UnknownExpressionCharacter(_) => "unknown-expression-character",
+            ExpectedExpression => "expected-expression",
+            UnclosedParenthesis => "unclosed-parenthesis",
+            ExpectedArgSeparator => "expected-arg-separator",
         }
     }
 }
@@ -216,13 +244,14 @@ impl fmt::Display for DiagnosticKind {
             JumpToUnknownNode(name) => write!(f, "jump to unknown node `{name}`"),
             ReservedNodeName(name) => write!(f, "reserved node name `{name}`"),
             EmptyCommand => f.write_str("`>>` is missing a command name"),
+            ExpectedCommand => {
+                f.write_str("expected a command, like `name()` or `name(1, \"two\")`")
+            }
             InvalidCommandName(name) => write!(
                 f,
                 "`{name}` is an invalid command name, expected a letter or `_` followed by letters, digits or `_`",
             ),
-            UnclosedCommandArgs => {
-                f.write_str("`(` is never closed, expected `)` at the end of the line")
-            }
+            UnclosedCall => f.write_str("`(` is never closed, expected `)` at the end of the line"),
             InvalidCommandArgument(arg) => write!(
                 f,
                 "invalid command argument `{arg}`, expected a number, `true`, `false`, a word or a quoted string"
@@ -233,6 +262,17 @@ impl fmt::Display for DiagnosticKind {
             UnterminatedString => {
                 f.write_str("string is never closed, expected a `\"` before the end of the line")
             }
+            EmptyVariableName => f.write_str("`$` is missing a variable name"),
+            InvalidNumber(text) => write!(
+                f,
+                "`{text}` is an invalid number, expected digits with at most one `.`"
+            ),
+            UnknownExpressionCharacter(c) => {
+                write!(f, "unexpected character `{c}` in the expression")
+            }
+            ExpectedExpression => f.write_str("expected an expression"),
+            UnclosedParenthesis => f.write_str("`(` is never closed, expected `)`"),
+            ExpectedArgSeparator => f.write_str("expected `,` or `)` after this function argument"),
         }
     }
 }
@@ -532,6 +572,11 @@ impl Diagnostics {
             line_index,
             path: None,
         }
+    }
+
+    /// Create an empty collection directly from the source. Create LineIndex on its own.
+    pub(super) fn from_src(src: &str) -> Self {
+        Self::new(LineIndex::new(src))
     }
 
     /// Attach the path shown by both renderings. Without it, they start directly at the line number.

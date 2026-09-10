@@ -10,6 +10,7 @@ readme = "../../README.md"
 
 [dependencies]
 thiserror = { workspace = true }
+logos = "0.16"
 
 [dev-dependencies]
 insta = "1.48"

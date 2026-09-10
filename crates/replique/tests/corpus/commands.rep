@@ -1,5 +1,5 @@
 := start
->> fade_in
+>> fade_in()
 Alice: Tu entends ça ?
 >> play("cloche", 0.5, true)
 -> Oui
@@ -7,5 +7,6 @@ Alice: Tu entends ça ?
     Bob: Moi aussi.
 -> Non
     >> set_flag(sourd, -1)
+>> play("cloche", 0.5 + 1, true)
 >> fade_out()
 ---

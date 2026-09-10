@@ -3,8 +3,8 @@
 use crate::parser::{ast::NodeDecl, diagnostic::Diagnostics};
 
 pub mod ast;
-mod command;
 pub mod diagnostic;
+pub(crate) mod expr;
 mod lines;
 
 pub use ast::parse;
@@ -157,6 +157,10 @@ impl From<Spanned<&str>> for Spanned<String> {
 }
 
 impl<T> Spanned<T> {
+    pub fn new(value: T, span: Span) -> Self {
+        Self { value, span }
+    }
+
     pub fn into_inner(self) -> T {
         self.value
     }

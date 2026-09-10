@@ -3,9 +3,9 @@
 use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
 use crate::parser::{
-    END_NODE_NAME, LineIndex, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
-    command::split_command,
+    END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
     diagnostic::{DiagnosticKind, Diagnostics, Label},
+    expr::{Expr, pratt::ExprParser},
     lines::{LineKind, RawLine, split_lines},
 };
 
@@ -32,7 +32,7 @@ pub enum StmtKind {
     Jump(Spanned<String>),
     Command {
         name: Spanned<String>,
-        args: Vec<Spanned<Value>>,
+        args: Vec<Spanned<Expr>>,
     },
 }
 
@@ -104,7 +104,7 @@ impl Value {
 }
 
 pub fn parse(src: &str) -> Parsed {
-    let mut diagnostics = Diagnostics::new(LineIndex::new(src));
+    let mut diagnostics = Diagnostics::from_src(src);
     let lines = split_lines(src, &mut diagnostics);
 
     let mut parser = Parser::new(lines, diagnostics);
@@ -360,71 +360,55 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `>> name`, `>> name()` or `>> name(1, "two", true)`.
+    /// `>> name()` or `>> name(1, $gold + 1, true)`. The `(` follows the name
+    /// directly, and every argument is an expression.
     /// A malformed command is dropped.
     fn parse_command(&mut self, cmd: Spanned<&str>, line_span: Span) -> Option<Stmt> {
-        if cmd.value.is_empty() {
+        // The name is read before the expression parser sees the line: a
+        // faulty one is named as such, instead of being reported as a whole
+        // expression that happens not to be a call.
+        let name = cmd
+            .value
+            .split('(')
+            .next()
+            .expect("always one part")
+            .trim_end();
+        if name.is_empty() {
             self.diags.push(line_span, DiagnosticKind::EmptyCommand);
             return None;
         }
-
-        let parts = split_command(cmd);
-
-        if let Some(s) = parts.unterminated_string {
-            self.diags.push(s, DiagnosticKind::UnterminatedString);
-            return None;
-        }
-        // Checked before `closed`, which is also false when text trails.
-        if let Some(trailing) = parts.trailing {
-            self.diags
-                .push(trailing.span, DiagnosticKind::TrailingAfterCommand);
-            return None;
-        }
-        if !parts.closed {
-            self.diags
-                .push(cmd.span, DiagnosticKind::UnclosedCommandArgs);
-            return None;
-        }
-
-        if parts.name.value.is_empty() {
-            self.diags.push(cmd.span, DiagnosticKind::EmptyCommand);
-        } else if !is_valid_ident(parts.name.value) {
+        if !is_valid_ident(name) {
             self.diags.push(
-                parts.name.span,
-                DiagnosticKind::InvalidCommandName(parts.name.value.into()),
+                Span::from_length(cmd.span.start, name.len()),
+                DiagnosticKind::InvalidCommandName(name.to_owned()),
             );
+            return None;
         }
 
-        let values = parts
-            .args
-            .iter()
-            .filter_map(|arg| {
-                let maybe_val = Value::parse(arg.value);
-                if maybe_val.is_none() {
+        let expr = ExprParser::new(&cmd, &mut self.diags).expr(0);
+
+        match expr.value {
+            Expr::Function { name, args } => {
+                if cmd.span != expr.span {
+                    // Spaces between the `)` and the text are not the text.
+                    let rest = cmd.value[expr.span.end - cmd.span.start..].trim_start();
                     self.diags.push(
-                        arg.span,
-                        DiagnosticKind::InvalidCommandArgument(arg.value.into()),
+                        Span::new(cmd.span.end - rest.len(), cmd.span.end),
+                        DiagnosticKind::TrailingAfterCommand,
                     );
                 }
-                maybe_val.map(|v| Spanned {
-                    value: v,
-                    span: arg.span,
+
+                Some(Stmt {
+                    kind: StmtKind::Command { name, args },
+                    span: expr.span,
                 })
-            })
-            .collect::<Vec<_>>();
-
-        // An arg could not be parsed
-        if values.len() != parts.args.len() {
-            return None;
+            }
+            Expr::Error => None,
+            _ => {
+                self.diags.push(expr.span, DiagnosticKind::ExpectedCommand);
+                None
+            }
         }
-
-        Some(Stmt {
-            kind: StmtKind::Command {
-                name: parts.name.into(),
-                args: values,
-            },
-            span: cmd.span,
-        })
     }
 
     /// Detect duplicate node name and unkonwn jump node
@@ -506,7 +490,10 @@ pub(super) fn is_valid_ident(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::diagnostic::DiagnosticKind;
+    use crate::parser::{
+        diagnostic::DiagnosticKind,
+        expr::{BinaryOp, UnaryOp},
+    };
 
     /// The single statement of a one-node file.
     fn only_stmt(src: &str) -> StmtKind {
@@ -529,14 +516,19 @@ mod tests {
         format!(":= start\n{line}\nAlice: ok\n---\n")
     }
 
-    /// Name and values of a command, spans dropped.
-    fn command(line: &str) -> (String, Vec<Value>) {
+    /// Name and arguments of a command, spans dropped.
+    fn command(line: &str) -> (String, Vec<Expr>) {
         match only_stmt(&in_node(line)) {
             StmtKind::Command { name, args } => {
                 (name.value, args.into_iter().map(|a| a.value).collect())
             }
             other => panic!("expected a command, got {other:?}"),
         }
+    }
+
+    /// A literal argument, as the expression parser builds it.
+    fn lit(value: Value) -> Expr {
+        Expr::Litteral { value }
     }
 
     fn codes(src: &str) -> Vec<&'static str> {
@@ -639,25 +631,57 @@ mod tests {
     }
 
     #[test]
-    fn a_command_without_parentheses_takes_no_argument() {
-        assert_eq!(command(">> pause"), ("pause".to_string(), vec![]));
+    fn a_command_without_argument_keeps_its_parentheses() {
         assert_eq!(command(">> pause()"), ("pause".to_string(), vec![]));
+        assert_eq!(codes(&in_filled_node(">> pause")), ["expected-command"]);
     }
 
     #[test]
     fn a_command_parses_every_kind_of_value() {
-        let (name, args) = command(r#">> play("bell", 0.5, -2, true, loop)"#);
+        let (name, args) = command(r#">> play("bell", 0.5, 2, true, loop)"#);
 
         assert_eq!(name, "play");
         assert_eq!(
             args,
             vec![
-                Value::String("bell".into()),
-                Value::Float(0.5),
-                Value::Int(-2),
-                Value::Bool(true),
-                Value::String("loop".into()),
+                lit(Value::String("bell".into())),
+                lit(Value::Float(0.5)),
+                lit(Value::Int(2)),
+                lit(Value::Bool(true)),
+                lit(Value::String("loop".into())),
             ]
+        );
+    }
+
+    /// `-2` is the negation of `2`, not a literal: the lexer never gives a
+    /// sign to a number.
+    #[test]
+    fn a_negative_number_is_a_negation() {
+        let (_, args) = command(">> play(-2)");
+
+        assert!(
+            matches!(
+                args.as_slice(),
+                [Expr::Unary { op, rhs }]
+                    if op.value == UnaryOp::Neg && rhs.value == lit(Value::Int(2))
+            ),
+            "expected a negation, got {args:?}"
+        );
+    }
+
+    #[test]
+    fn an_argument_can_be_a_whole_expression() {
+        let (_, args) = command(">> play($gold + 1)");
+
+        assert!(
+            matches!(
+                args.as_slice(),
+                [Expr::Binary { op, lhs, rhs }]
+                    if op.value == BinaryOp::Add
+                        && lhs.value == (Expr::Var { name: "gold".into() })
+                        && rhs.value == lit(Value::Int(1))
+            ),
+            "expected an addition, got {args:?}"
         );
     }
 
@@ -665,22 +689,32 @@ mod tests {
     fn a_comma_inside_a_string_does_not_split_the_arguments() {
         let (_, args) = command(r#">> say("un, deux")"#);
 
-        assert_eq!(args, vec![Value::String("un, deux".into())]);
+        assert_eq!(args, vec![lit(Value::String("un, deux".into()))]);
     }
 
     #[test]
     fn a_string_argument_unescapes_its_quotes_and_backslashes() {
         let (_, args) = command(r#">> say("a \" b \\ c")"#);
 
-        assert_eq!(args, vec![Value::String(r#"a " b \ c"#.into())]);
+        assert_eq!(args, vec![lit(Value::String(r#"a " b \ c"#.into()))]);
     }
 
     #[test]
-    fn spaces_around_the_name_and_the_arguments_are_ignored() {
+    fn spaces_around_the_arguments_are_ignored() {
         assert_eq!(
-            command(">> play ( 1 , 2 )"),
-            ("play".to_string(), vec![Value::Int(1), Value::Int(2)])
+            command(">> play( 1 , 2 )"),
+            (
+                "play".to_string(),
+                vec![lit(Value::Int(1)), lit(Value::Int(2))]
+            )
         );
+    }
+
+    /// `play (1)` reads as the word `play` followed by a parenthesis, not as
+    /// a call: the `(` belongs to the name.
+    #[test]
+    fn a_space_before_the_parenthesis_is_not_a_call() {
+        assert_eq!(codes(&in_filled_node(">> play (1)")), ["expected-command"]);
     }
 
     #[test]
@@ -689,7 +723,10 @@ mod tests {
 
         assert_eq!(
             args,
-            vec![Value::String("inf".into()), Value::String("NaN".into())]
+            vec![
+                lit(Value::String("inf".into())),
+                lit(Value::String("NaN".into()))
+            ]
         );
     }
 
@@ -719,10 +756,7 @@ mod tests {
 
     #[test]
     fn error_on_an_unclosed_argument_list() {
-        assert_eq!(
-            codes(&in_filled_node(">> play(1")),
-            ["unclosed-command-args"]
-        );
+        assert_eq!(codes(&in_filled_node(">> play(1")), ["unclosed-call"]);
     }
 
     /// Text left after the `)` has its own diagnostic, so that the arguments
@@ -740,25 +774,26 @@ mod tests {
     fn error_on_an_unterminated_string_argument() {
         assert_eq!(
             codes(&in_filled_node(r#">> play("oups)"#)),
-            ["unterminated-string"]
+            ["unterminated-string", "unclosed-call"]
         );
     }
 
     #[test]
-    fn error_on_an_argument_that_is_not_a_value() {
-        assert_eq!(
-            codes(&in_filled_node(">> play(1..2)")),
-            ["invalid-command-argument"]
-        );
+    fn error_on_an_argument_that_does_not_parse() {
+        assert_eq!(codes(&in_filled_node(">> play(1..2)")), ["invalid-number"]);
         assert_eq!(
             codes(&in_filled_node(">> play(1,)")),
-            ["invalid-command-argument"]
+            ["expected-expression"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(">> play(1 2)")),
+            ["expected-arg-separator"]
         );
     }
 
     #[test]
     fn a_broken_command_costs_exactly_one_line() {
-        let src = ":= start\n>> play(1..2)\nAlice: ok\n---\n";
+        let src = ":= start\n>> play(1 2)\nAlice: ok\n---\n";
         let parsed = parse(src);
 
         assert_eq!(parsed.nodes[0].body.len(), 1);
