@@ -91,6 +91,14 @@ impl From<Spanned<String>> for NodeName {
     }
 }
 
+/// Clone a borrowed name, so `&NodeName` is accepted anywhere an
+/// `impl Into<NodeName>` is asked for.
+impl From<&NodeName> for NodeName {
+    fn from(value: &NodeName) -> Self {
+        value.clone()
+    }
+}
+
 /// Build a name from anything string-like: `&str`, `String`, `&String`,
 /// `Cow<str>`, `Box<str>`...
 ///

@@ -2,7 +2,7 @@
 
 Replique is a pure Rust dialogue system, with first-class support for [Bevy](https://bevyengine.org).
 
-It is inspired by [Yarn Spinner](https://www.yarnspinner.dev) and [Godot Dialogue Manager](https://github.com/nathanhoad/godot_dialogue_manager). Dialogues are written in plain text files that look like this:
+It is inspired by [YarnSpinner](https://www.yarnspinner.dev), [YarnSpinner-Rust](https://github.com/YarnSpinnerTool/YarnSpinner-Rust) and [Godot Dialogue Manager](https://github.com/nathanhoad/godot_dialogue_manager). Dialogues are written in plain text files that look like this:
 
 ```
 := start
@@ -42,8 +42,8 @@ Indentation under a `->` line defines the lines played when that choice is picke
 | --------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
 | [`replique`](crates/replique)           | The engine-agnostic parser and dialogue runtime | [doc.rs](https://docs.rs/replique/latest/replique)           |
 | [`bevy_replique`](crates/bevy_replique) | Bevy plugin built on top of `replique`          | [doc.rs](https://docs.rs/bevy_replique/latest/bevy_replique) |
-| [`replique-cli`](crates/replique-cli)   | Command line tool to check dialogue files       | [README](crates/replique-cli/README.MD)                      |
-| [`replique-lsp`](crates/replique-lsp)   | Language server for editor support              | [README](crates/replique-lsp/README.MD)                      |
+| [`replique-cli`](crates/replique-cli)   | Command line tool to check dialogue files       | [README](crates/replique-cli/README.md)                      |
+| [`replique-lsp`](crates/replique-lsp)   | Language server for editor support              | [README](crates/replique-lsp/README.md)                      |
 
 ## License
 

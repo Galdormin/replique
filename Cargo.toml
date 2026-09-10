@@ -12,7 +12,7 @@ authors = ["Théo Plénet <theo.plenet@gmail.com>"]
 [workspace.dependencies]
 replique = { version = "0.0.0", path = "crates/replique" }
 
-bevy = { version = "0.19", default-features = false }
+bevy = { version = "0.19", default-features = false , features = ["bevy_asset", "bevy_log"] }
 thiserror = "2"
 
 

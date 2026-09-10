@@ -204,7 +204,7 @@ impl DialogueVm {
 
         self.dialogue = Some(dialogue);
 
-        let cursor = self.get_cursor_for_node(&name.into())?;
+        let cursor = self.get_cursor_for_node(name.into())?;
         self.run(cursor)
     }
 
@@ -260,7 +260,7 @@ impl DialogueVm {
                         choices: choices.into_iter().map(|c| c.text).collect(),
                     });
                 }
-                StepKind::Jump(name) => cursor = self.get_cursor_for_node(&name)?,
+                StepKind::Jump(name) => cursor = self.get_cursor_for_node(name)?,
                 StepKind::End => {
                     self.state = VmState::Finished;
                     return Ok(DialogueEvent::Finished);
@@ -276,9 +276,9 @@ impl DialogueVm {
     }
 
     /// Cursor on the entry step of `name`.
-    fn get_cursor_for_node(&self, name: &NodeName) -> Result<Cursor, VmError> {
+    fn get_cursor_for_node(&self, name: NodeName) -> Result<Cursor, VmError> {
         let mut cursor = Cursor {
-            name: name.clone(),
+            name,
             step: StepId::default(),
         };
 

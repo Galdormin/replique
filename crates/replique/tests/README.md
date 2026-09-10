@@ -18,7 +18,7 @@ format, for instance), add `INSTA_FORCE_UPDATE=1`.
 Interactive alternative, with `cargo install cargo-insta`:
 
 ```sh
-cargo insta test --review -p chatter-core
+cargo insta test --review -p replique
 ```
 
 ## `properties.rs` — proptest

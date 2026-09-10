@@ -21,7 +21,7 @@ pub fn discover(paths: &[PathBuf], recursive: bool) -> Result<Vec<PathBuf>> {
         }
 
         if p.is_file() {
-            if is_chatter_file(p) {
+            if is_rep_file(p) {
                 out.push(p.clone());
             }
             continue;
@@ -35,9 +35,9 @@ pub fn discover(paths: &[PathBuf], recursive: bool) -> Result<Vec<PathBuf>> {
 
         for entry in walk {
             // `WalkDir` also yields the directories: a folder named
-            // `dialogue.chatter` must not end up in the list.
+            // `dialogue.rep` must not end up in the list.
             let entry = entry?;
-            if entry.file_type().is_file() && is_chatter_file(entry.path()) {
+            if entry.file_type().is_file() && is_rep_file(entry.path()) {
                 out.push(entry.into_path());
             }
         }
@@ -50,7 +50,7 @@ pub fn discover(paths: &[PathBuf], recursive: bool) -> Result<Vec<PathBuf>> {
 }
 
 /// Whether the file carries one of the [`EXTENSIONS`]
-fn is_chatter_file(path: &Path) -> bool {
+fn is_rep_file(path: &Path) -> bool {
     path.extension().is_some_and(|extension| {
         EXTENSIONS
             .iter()

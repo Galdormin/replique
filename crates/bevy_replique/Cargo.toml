@@ -10,4 +10,9 @@ readme = "../../README.md"
 
 [dependencies]
 replique = { workspace = true }
+
+bevy = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+bevy = { version = "0.19", default-features = false, features = ["ui", "2d"] }
