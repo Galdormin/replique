@@ -17,7 +17,7 @@ pub fn check(args: &CheckArgs) -> Result<Outcome> {
 
         let parsed = replique::parser::parse(&src);
 
-        let diagnostics = parsed.diagnostics.with_color(Color::Auto).with_path(path);
+        let diagnostics = parsed.diagnostics.with_path(path);
         errors += diagnostics.errors();
         warnings += diagnostics.warnings();
 
@@ -28,8 +28,8 @@ pub fn check(args: &CheckArgs) -> Result<Outcome> {
         // Diagnostics go to stderr, like every other linter: stdout stays free
         // for whatever a future command wants to pipe.
         let rendered = match args.format {
-            Format::Pretty => diagnostics.render(&src),
-            Format::Short => diagnostics.render_short(&src),
+            Format::Pretty => diagnostics.render(&src, Color::Auto),
+            Format::Short => diagnostics.render_short(&src, Color::Auto),
         };
         if !rendered.is_empty() {
             eprint!("{rendered}");

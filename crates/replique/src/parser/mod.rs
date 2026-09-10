@@ -155,3 +155,9 @@ impl From<Spanned<&str>> for Spanned<String> {
         }
     }
 }
+
+impl<T> Spanned<T> {
+    pub fn into_inner(self) -> T {
+        self.value
+    }
+}

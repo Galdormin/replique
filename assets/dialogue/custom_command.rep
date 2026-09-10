@@ -1,0 +1,29 @@
+:= start
+>> add_scene(Alice, Bob)
+
+Alice: Hi! How you doing ?
+Bob: Fine and you ?
+Alice: Anything plan for today ?
+Bob: Yes, I have a date with Caro.
+
+>> add_scene(Caroline)
+
+Alice: There she is.
+Caroline: Hello there!
+Alice: Bob was just talking about you.
+Caroline: Is that so?
+Alice: Yeah, He is excited for the date.
+Alice: Anyway, I gotta leave you two. See you!
+Bob: Bye bye
+Caroline: Bye!
+
+>> remove_scene(Alice)
+
+Bob: So, where do you wanna go ?
+Caroline: At the mall ?
+Bob: Let's go then!
+Caroline: Should we hold hands ?
+Bob: Sure
+
+>> remove_scene(Bob, Caroline)
+---

@@ -38,12 +38,12 @@ Indentation under a `->` line defines the lines played when that choice is picke
 
 ## Crates
 
-| Crate                                   | Description                                     |
-| --------------------------------------- | ----------------------------------------------- |
-| [`replique`](crates/replique)           | The engine-agnostic parser and dialogue runtime |
-| [`bevy_replique`](crates/bevy_replique) | Bevy plugin built on top of `replique`          |
-| [`replique-cli`](crates/replique-cli)   | Command line tool to check dialogue files       |
-| [`replique-lsp`](crates/replique-lsp)   | Language server for editor support              |
+| Crate                                   | Description                                     | Docs                                                         |
+| --------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
+| [`replique`](crates/replique)           | The engine-agnostic parser and dialogue runtime | [doc.rs](https://docs.rs/replique/latest/replique)           |
+| [`bevy_replique`](crates/bevy_replique) | Bevy plugin built on top of `replique`          | [doc.rs](https://docs.rs/bevy_replique/latest/bevy_replique) |
+| [`replique-cli`](crates/replique-cli)   | Command line tool to check dialogue files       | [README](crates/replique-cli/README.MD)                      |
+| [`replique-lsp`](crates/replique-lsp)   | Language server for editor support              | [README](crates/replique-lsp/README.MD)                      |
 
 ## License
 

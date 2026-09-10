@@ -522,7 +522,6 @@ pub struct Diagnostics {
     diags: Vec<Diagnostic>,
     line_index: LineIndex,
     path: Option<PathBuf>,
-    color: Color,
 }
 
 impl Diagnostics {
@@ -532,7 +531,6 @@ impl Diagnostics {
             diags: vec![],
             line_index,
             path: None,
-            color: Color::Never,
         }
     }
 
@@ -540,14 +538,6 @@ impl Diagnostics {
     #[must_use]
     pub fn with_path(mut self, path: &Path) -> Self {
         self.path = Some(path.into());
-        self
-    }
-
-    /// Choose whether both renderings emit ANSI escape codes. Defaults to
-    /// [`Color::Never`].
-    #[must_use]
-    pub fn with_color(mut self, color: Color) -> Self {
-        self.color = color;
         self
     }
 
@@ -594,10 +584,10 @@ impl Diagnostics {
     /// file.rep:2:1: error[irregular-indentation]: indentation is not a multiple of the indentation width
     /// file.rep:3:5: error[tab-indentation]: indentation uses a tab, use spaces instead
     /// ```
-    pub fn render_short(&self, src: &str) -> String {
+    pub fn render_short(&self, src: &str, color: Color) -> String {
         self.diags
             .iter()
-            .map(|d| d.render_short(src, &self.line_index, self.path.as_deref(), self.color))
+            .map(|d| d.render_short(src, &self.line_index, self.path.as_deref(), color))
             .collect()
     }
 
@@ -611,10 +601,10 @@ impl Diagnostics {
     /// 2 |    Alice: Hi!
     ///   | ^^^
     /// ```
-    pub fn render(&self, src: &str) -> String {
+    pub fn render(&self, src: &str, color: Color) -> String {
         self.diags
             .iter()
-            .map(|d| d.render(src, &self.line_index, self.path.as_deref(), self.color))
+            .map(|d| d.render(src, &self.line_index, self.path.as_deref(), color))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -888,8 +878,8 @@ mod tests {
 
         assert_eq!(diags.errors(), 0);
         assert_eq!(diags.warnings(), 0);
-        assert_eq!(diags.render_short(SRC), "");
-        assert_eq!(diags.render(SRC), "");
+        assert_eq!(diags.render_short(SRC, Color::Never), "");
+        assert_eq!(diags.render(SRC, Color::Never), "");
     }
 
     #[test]
@@ -904,7 +894,7 @@ mod tests {
         .with_path(file_path().unwrap());
 
         assert_eq!(
-            diags.render_short(SRC),
+            diags.render_short(SRC, Color::Never),
             concat!(
                 "file.rep:2:1: error[irregular-indentation]: indentation is not a multiple of the indentation width\n",
                 "file.rep:2:4: error[tab-indentation]: indentation uses a tab, use spaces instead\n",
@@ -922,7 +912,7 @@ mod tests {
             ],
         );
 
-        let out = diags.render(SRC);
+        let out = diags.render(SRC, Color::Never);
         assert_eq!(out.matches("\n\n").count(), 1, "{out}");
         assert!(out.contains("^^^\n\nerror[tab-indentation]"), "{out}");
     }
@@ -930,20 +920,27 @@ mod tests {
     #[test]
     fn with_path_is_reflected_in_both_renderings() {
         let diags = diags(SRC, &[(INDENT, DiagnosticKind::IrregularIndentation)]);
-        assert!(diags.render_short(SRC).starts_with("2:1:"));
-        assert!(diags.render(SRC).contains("  --> 2:1\n"));
+        assert!(diags.render_short(SRC, Color::Never).starts_with("2:1:"));
+        assert!(diags.render(SRC, Color::Never).contains("  --> 2:1\n"));
 
         let diags = diags.with_path(file_path().unwrap());
-        assert!(diags.render_short(SRC).starts_with("file.rep:2:1:"));
-        assert!(diags.render(SRC).contains("  --> file.rep:2:1\n"));
+        assert!(
+            diags
+                .render_short(SRC, Color::Never)
+                .starts_with("file.rep:2:1:")
+        );
+        assert!(
+            diags
+                .render(SRC, Color::Never)
+                .contains("  --> file.rep:2:1\n")
+        );
     }
 
     #[test]
-    fn with_color_applies_to_the_whole_batch() {
-        let diags =
-            diags(SRC, &[(INDENT, DiagnosticKind::IrregularIndentation)]).with_color(Color::Always);
+    fn color_applies_to_the_whole_batch() {
+        let diags = diags(SRC, &[(INDENT, DiagnosticKind::IrregularIndentation)]);
 
-        assert!(diags.render(SRC).contains('\u{1b}'));
-        assert!(diags.render_short(SRC).contains('\u{1b}'));
+        assert!(diags.render(SRC, Color::Always).contains('\u{1b}'));
+        assert!(diags.render_short(SRC, Color::Always).contains('\u{1b}'));
     }
 }
