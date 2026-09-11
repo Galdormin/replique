@@ -1,0 +1,10 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+choices ["A", "B"]
+  pick 0 "A"
+say Alice "Ensuite."
+choices ["C", "D"]
+  pick 0 "C"
+end

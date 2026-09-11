@@ -1,0 +1,6 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+say Alice "On y va."
+end

@@ -173,6 +173,7 @@ corpus!(
     commands,
     lets,
     conditions,
+    else_branch,
     // Degraded corpus
     unclosed,
     unclosed_eof,

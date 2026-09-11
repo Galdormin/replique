@@ -1,0 +1,10 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+say Alice "Salut, tu viens ?"
+choices ["Oui", "Non"]
+  pick 0 "Oui"
+say Bob "Avec plaisir."
+say Alice "On y va."
+end

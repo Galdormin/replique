@@ -1,0 +1,13 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+  $gold = 10
+  $name = "Alice"
+say Alice "J'ai de l'or."
+choices ["Dépenser", "Garder"]
+  pick 0 "Dépenser"
+  $gold = 5
+say Alice "Il m'en reste."
+command show(5)
+end

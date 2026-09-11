@@ -1,0 +1,10 @@
+:= start
+[let $gold = 0]
+[if $gold > 5]
+    Alice: Je suis riche.
+[elif $gold > 0]
+    Alice: J'ai trois sous.
+[else]
+    Alice: J'ai pas d'argent.
+>> show($gold)
+---

@@ -217,6 +217,11 @@ impl DialogueVm {
         self.run(cursor)
     }
 
+    /// Every variable the dialogue has written, and its value.
+    pub fn vars(&self) -> &HashMap<String, Value> {
+        &self.vars
+    }
+
     /// Answer the last [`DialogueEvent`] and run up to the next one.
     ///
     /// `resume` must match the event the VM emitted, see [`ResumeEvent`]. On
