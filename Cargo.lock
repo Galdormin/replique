@@ -4517,6 +4517,7 @@ dependencies = [
 name = "replique-lsp"
 version = "0.0.0"
 dependencies = [
+ "dashmap",
  "replique",
  "tokio",
  "tower-lsp-server",

@@ -12,7 +12,6 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) enum Expr {
-    #[allow(unused)]
     Var(String),
     Litteral(Value),
     #[allow(unused)]

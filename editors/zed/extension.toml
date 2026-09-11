@@ -11,6 +11,6 @@ languages = ["languages/replique"]
 kind = "Rust"
 version = "0.7.0"
 
-[language_servers.chatter-lsp]
+[language_servers.replique-lsp]
 name = "Replique Language Server"
 languages = ["Replique"]
