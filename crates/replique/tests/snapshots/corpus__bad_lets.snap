@@ -12,10 +12,10 @@ node start
   line Alice "cinq" @11:1 "Alice: cinq"
 
 == diagnostics ==
-error unclosed-let @2:1 "[let $gold = 10"
+error unclosed-bracket @2:1 "[let $gold = 10"
 error expected-assignment @4:1 "[let $gold + 1]"
 error expected-assignment @6:1 "[let]"
-error trailing-after-let @8:17 "20"
+error unexpected-text-in-bracket @8:17 "20"
 error invalid-binary-operands @10:14 "\"a\" - 1"
   label string @10:14 "\"a\""
   label int @10:20 "1"

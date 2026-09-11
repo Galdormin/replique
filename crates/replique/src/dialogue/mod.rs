@@ -165,12 +165,18 @@ pub(crate) enum StepKind {
     Jump(NodeName),
     /// A command for the host, then `next`.
     Command { command: Command, next: StepId },
-    /// Give a variable its value, then `next`. Invisible to the host: the VM
-    /// evaluates and stores it on its own.
+    /// Give a variable its value, then `next`.
     Set {
         name: String,
         value: Expr,
         next: StepId,
+    },
+    /// One branch of an `[if]`: `then` when the condition holds, `otherwise`
+    /// the next branch, the `[else]` or `[elif]`, or what follows the whole block.
+    Branch {
+        condition: Expr,
+        then: StepId,
+        otherwise: StepId,
     },
     /// The dialogue is over.
     End,

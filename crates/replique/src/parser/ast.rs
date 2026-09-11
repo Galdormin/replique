@@ -5,7 +5,7 @@ use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 use crate::parser::{
     END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
     diagnostic::{DiagnosticKind, Diagnostics, Label},
-    expr::{Expr, pratt},
+    expr::{Expr, ValueType, pratt},
     lines::{LineKind, RawLine, split_lines},
 };
 
@@ -39,6 +39,22 @@ pub enum StmtKind {
         name: Spanned<String>,
         value: Spanned<Expr>,
     },
+    /// `[if]`, its `[elif]` and its `[else]`, in the order they are written.
+    If {
+        /// The `[if]` and every `[elif]` after it, never empty.
+        branches: Vec<Branch>,
+        /// Body of the `[else]`, when the block has one.
+        otherwise: Option<Vec<Stmt>>,
+    },
+}
+
+/// One `[if <cond>]` or `[elif <cond>]`, and the block indented under it.
+#[derive(Debug)]
+pub struct Branch {
+    pub condition: Spanned<Expr>,
+    pub body: Vec<Stmt>,
+    /// From the marker to the last statement of the body.
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -271,6 +287,7 @@ impl<'a> Parser<'a> {
 
             match line.kind {
                 LineKind::Choice(_) => out.push(self.parse_choice_group()),
+                LineKind::If(_) => out.push(self.parse_if()),
                 _ => out.extend(self.parse_line()),
             }
         }
@@ -323,6 +340,149 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Groups an `[if]` with the `[elif]` and `[else]` that follow it at the
+    /// same indentation, each owning the block indented under it.
+    ///
+    /// A branch that cannot be there — an `[elif]` after the `[else]`, a
+    /// second `[else]` — is reported and dropped with its body, which nothing
+    /// could have reached anyway.
+    fn parse_if(&mut self) -> Stmt {
+        let first = self.peek().expect("Already checked by parse_block.");
+        let base = first.indent;
+        let mut branches: Vec<Branch> = vec![];
+        let mut otherwise = None;
+        let mut span = first.span;
+        // Whether the `[if]` has been read, and not whether a branch came out
+        // of it: a condition that is dropped must not let the next `[if]`
+        // join this group.
+        let mut started = false;
+
+        while let Some(line) = self.peek() {
+            if line.indent != base {
+                break;
+            }
+
+            // What this line is for the group: a condition to read, or the
+            // `[else]`. Anything else, and the group is over.
+            let marker = match line.kind {
+                LineKind::If(_) if !started => "[if]",
+                LineKind::Elif(_) if started => "[elif]",
+                LineKind::Else(_) if started => "[else]",
+                _ => break,
+            };
+            started = true;
+            let kind = line.kind;
+            let line_span = line.span;
+            self.bump();
+
+            let body = self.parse_block(base + 1);
+            let body_span = body.last().map_or(line_span, |s| line_span.join(s.span));
+            span = span.join(body_span);
+
+            if otherwise.is_some() {
+                self.diags
+                    .push(line_span, DiagnosticKind::BranchAfterElse(marker.into()));
+                continue;
+            }
+
+            match kind {
+                LineKind::Else(rest) => {
+                    self.expect_empty_bracket(rest, line_span, marker);
+                    otherwise = Some(body);
+                }
+                LineKind::If(cond) | LineKind::Elif(cond) => {
+                    match self.parse_condition(cond, line_span, marker) {
+                        Some(condition) => branches.push(Branch {
+                            condition,
+                            body,
+                            span: body_span,
+                        }),
+                        // The condition is already reported; keeping the
+                        // branch would mean keeping a body nothing guards.
+                        None => continue,
+                    }
+                }
+                _ => unreachable!("checked when the marker was named"),
+            }
+        }
+
+        // A group where every branch was dropped is empty, and compiles to
+        // nothing. It only happens once something has been reported, so the
+        // file has no dialogue to run anyway.
+        Stmt {
+            kind: StmtKind::If {
+                branches,
+                otherwise,
+            },
+            span,
+        }
+    }
+
+    /// The condition of an `[if]` or an `[elif]`, which must be a `bool`.
+    fn parse_condition(
+        &mut self,
+        body: Spanned<&str>,
+        line_span: Span,
+        marker: &str,
+    ) -> Option<Spanned<Expr>> {
+        let inner = self.strip_bracket(body, line_span, marker)?;
+        let (expr, trailing) = pratt::parse_with_trailing(&inner, &mut self.diags);
+
+        if let Some(span) = trailing {
+            self.diags
+                .push(span, DiagnosticKind::UnexpectedTextInBracket);
+            return None;
+        }
+        if let Expr::Error = expr.value {
+            return None;
+        }
+
+        // `Unknown` is what a variable or a call is worth before the dialogue
+        // runs: the VM checks those again when it evaluates them.
+        match expr.value.value_type() {
+            Some(ValueType::Bool | ValueType::Unknown) => Some(expr),
+            Some(other) => {
+                self.diags.push(
+                    expr.span,
+                    DiagnosticKind::ConditionIsNotABool(other.to_string()),
+                );
+                None
+            }
+            // An operator applied to the wrong types, already reported.
+            None => None,
+        }
+    }
+
+    /// Text between a bracketed marker and its `]`.
+    fn strip_bracket<'b>(
+        &mut self,
+        body: Spanned<&'b str>,
+        line_span: Span,
+        marker: &str,
+    ) -> Option<Spanned<&'b str>> {
+        match body.value.trim_end().strip_suffix(']') {
+            Some(inner) => Some(Spanned::from_text(inner.trim_end(), body.span.start)),
+            None => {
+                self.diags.push(
+                    line_span,
+                    DiagnosticKind::UnclosedBracket(marker.trim_end_matches(']').into()),
+                );
+                None
+            }
+        }
+    }
+
+    /// A marker that takes nothing, such as `[else]`.
+    fn expect_empty_bracket(&mut self, body: Spanned<&str>, line_span: Span, marker: &str) {
+        let Some(inner) = self.strip_bracket(body, line_span, marker) else {
+            return;
+        };
+        if !inner.value.trim().is_empty() {
+            self.diags
+                .push(inner.span, DiagnosticKind::UnexpectedTextInBracket);
+        }
+    }
+
     /// Parse a line that is not a block line (choice, while, if, etc.)
     fn parse_line(&mut self) -> Option<Stmt> {
         let line = self.bump().expect("Already checked by peek.");
@@ -352,6 +512,19 @@ impl<'a> Parser<'a> {
             }
             LineKind::Command(cmd) => self.parse_command(cmd, line.span),
             LineKind::Let(body) => self.parse_let(body, line.span),
+            // The block under a branch with no `[if]` has nowhere to go
+            // either: reading and dropping it keeps the whole mistake to a
+            // single diagnostic.
+            LineKind::Elif(_) | LineKind::Else(_) => {
+                let marker = match line.kind {
+                    LineKind::Elif(_) => "[elif]",
+                    _ => "[else]",
+                };
+                self.diags
+                    .push(line.span, DiagnosticKind::StrayBranch(marker.into()));
+                self.parse_block(line.indent + 1);
+                None
+            }
             LineKind::Malformed(marker) => {
                 self.diags.push(
                     line.span,
@@ -359,7 +532,7 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
-            LineKind::Choice(_) | LineKind::NodeStart(_) | LineKind::NodeEnd => {
+            LineKind::If(_) | LineKind::Choice(_) | LineKind::NodeStart(_) | LineKind::NodeEnd => {
                 debug_assert!(false, "handle by parse_block");
                 None
             }
@@ -419,11 +592,7 @@ impl<'a> Parser<'a> {
 
     /// `[let $name = <expr>]`. A malformed assignment is dropped.
     fn parse_let(&mut self, body: Spanned<&str>, line_span: Span) -> Option<Stmt> {
-        let Some(inner) = body.value.trim_end().strip_suffix(']') else {
-            self.diags.push(line_span, DiagnosticKind::UnclosedLet);
-            return None;
-        };
-        let inner = Spanned::from_text(inner.trim_end(), body.span.start);
+        let inner = self.strip_bracket(body, line_span, "[let")?;
 
         let Some(assignment) = pratt::parse_assignment(&inner, &mut self.diags) else {
             self.diags
@@ -432,7 +601,8 @@ impl<'a> Parser<'a> {
         };
 
         if let Some(span) = assignment.trailing {
-            self.diags.push(span, DiagnosticKind::TrailingAfterLet);
+            self.diags
+                .push(span, DiagnosticKind::UnexpectedTextInBracket);
             return None;
         }
         if let Expr::Error = assignment.value.value {
@@ -875,7 +1045,10 @@ mod tests {
 
     #[test]
     fn error_on_an_assignment_that_is_never_closed() {
-        assert_eq!(codes(&in_filled_node("[let $gold = 10")), ["unclosed-let"]);
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 10")),
+            ["unclosed-bracket"]
+        );
     }
 
     #[test]
@@ -906,7 +1079,7 @@ mod tests {
     fn error_on_text_left_after_the_value() {
         assert_eq!(
             codes(&in_filled_node("[let $gold = 10 20]")),
-            ["trailing-after-let"]
+            ["unexpected-text-in-bracket"]
         );
     }
 
@@ -928,6 +1101,144 @@ mod tests {
 
         assert_eq!(parsed.nodes[0].body.len(), 1);
         assert!(matches!(parsed.nodes[0].body[0].kind, StmtKind::Say { .. }));
+    }
+
+    /// Conditions of an `[if]` group, and whether it has an `[else]`.
+    fn branches(src: &str) -> (Vec<String>, bool) {
+        let full = in_node(src);
+        match only_stmt(&full) {
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => (
+                branches
+                    .iter()
+                    .map(|b| full[b.condition.span.start..b.condition.span.end].to_owned())
+                    .collect(),
+                otherwise.is_some(),
+            ),
+            other => panic!("expected an if, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_condition_owns_the_block_indented_under_it() {
+        let stmt = only_stmt(&in_node("[if $gold > 5]\n    Alice: riche"));
+        let StmtKind::If { branches, .. } = stmt else {
+            panic!("expected an if");
+        };
+
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0].body.len(), 1);
+        assert!(matches!(branches[0].body[0].kind, StmtKind::Say { .. }));
+    }
+
+    #[test]
+    fn the_branches_of_a_group_are_kept_in_order() {
+        assert_eq!(
+            branches(
+                "[if $gold > 5]\n    Alice: a\n[elif $gold > 1]\n    Alice: b\n[else]\n    Alice: c"
+            ),
+            (vec!["$gold > 5".to_string(), "$gold > 1".to_string()], true)
+        );
+    }
+
+    #[test]
+    fn a_condition_can_stand_without_an_else() {
+        assert_eq!(
+            branches("[if true]\n    Alice: a"),
+            (vec!["true".to_string()], false)
+        );
+    }
+
+    /// A second `[if]` at the same indentation opens its own group instead of
+    /// joining the one before it.
+    #[test]
+    fn two_conditions_in_a_row_are_two_groups() {
+        let parsed = parse(":= start\n[if true]\n    Alice: a\n[if false]\n    Alice: b\n---\n");
+
+        assert_eq!(parsed.nodes[0].body.len(), 2);
+        assert!(parsed.diagnostics.iter().next().is_none());
+    }
+
+    #[test]
+    fn a_group_can_hold_another_one() {
+        let stmt = only_stmt(&in_node(
+            "[if true]\n    [if false]\n        Alice: a\n    [else]\n        Alice: b",
+        ));
+        let StmtKind::If { branches, .. } = stmt else {
+            panic!("expected an if");
+        };
+
+        assert!(matches!(branches[0].body[0].kind, StmtKind::If { .. }));
+    }
+
+    #[test]
+    fn error_on_a_condition_that_is_never_closed() {
+        assert_eq!(
+            codes(&in_filled_node("[if $gold > 5")),
+            ["unclosed-bracket"]
+        );
+    }
+
+    /// A condition guards a block, so it has to be a `bool`. A variable or a
+    /// call has no type yet, and is left to the VM.
+    #[test]
+    fn error_on_a_condition_that_is_not_a_bool() {
+        assert_eq!(
+            codes(&in_filled_node("[if 1 + 1]\n    Alice: a")),
+            ["condition-not-a-bool"]
+        );
+        assert_eq!(
+            codes(&in_filled_node("[if \"oui\"]\n    Alice: a")),
+            ["condition-not-a-bool"]
+        );
+        // A variable or a call has no type before the dialogue runs.
+        assert!(codes(&in_filled_node("[if $gold + 1 > 2]\n    Alice: a")).is_empty());
+        assert!(codes(&in_filled_node("[if $flag]\n    Alice: a")).is_empty());
+        assert!(codes(&in_filled_node("[if is_open()]\n    Alice: a")).is_empty());
+    }
+
+    #[test]
+    fn error_on_text_left_in_a_branch() {
+        assert_eq!(
+            codes(&in_filled_node("[if true 1]\n    Alice: a")),
+            ["unexpected-text-in-bracket"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else oups]\n    Alice: b"
+            )),
+            ["unexpected-text-in-bracket"]
+        );
+    }
+
+    #[test]
+    fn error_on_a_branch_with_no_condition_before_it() {
+        assert_eq!(
+            codes(&in_filled_node("[elif true]\n    Alice: a")),
+            ["stray-branch"]
+        );
+        assert_eq!(
+            codes(&in_filled_node("[else]\n    Alice: a")),
+            ["stray-branch"]
+        );
+    }
+
+    #[test]
+    fn error_on_a_branch_after_the_else() {
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else]\n    Alice: b\n[elif false]\n    Alice: c"
+            )),
+            ["branch-after-else"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else]\n    Alice: b\n[else]\n    Alice: c"
+            )),
+            ["branch-after-else"]
+        );
     }
 
     #[test]

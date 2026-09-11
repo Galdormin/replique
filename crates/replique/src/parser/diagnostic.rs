@@ -138,12 +138,18 @@ pub enum DiagnosticKind {
         lhs: String,
         rhs: String,
     },
-    /// `[let` never closed.
-    UnclosedLet,
+    /// A bracketed marker never closed: `[let $gold = 1`.
+    UnclosedBracket(String),
     /// `[let` followed by something that does not assign: `[let $gold + 1]`.
     ExpectedAssignment,
-    /// Text left after the value: `[let $gold = 1 2]`.
-    TrailingAfterLet,
+    /// Text left inside a bracketed marker: `[let $gold = 1 2]`, `[else oups]`.
+    UnexpectedTextInBracket,
+    /// A condition that is not a `bool`: `[if $gold + 1]`.
+    ConditionIsNotABool(String),
+    /// `[elif]` or `[else]` while no `[if]` is open.
+    StrayBranch(String),
+    /// `[elif]` or a second `[else]` after an `[else]`.
+    BranchAfterElse(String),
 }
 
 impl DiagnosticKind {
@@ -178,9 +184,12 @@ impl DiagnosticKind {
             | ExpectedArgSeparator
             | InvalidUnaryOperand { .. }
             | InvalidBinaryOperands { .. }
-            | UnclosedLet
+            | UnclosedBracket(_)
             | ExpectedAssignment
-            | TrailingAfterLet => Severity::Error,
+            | UnexpectedTextInBracket
+            | ConditionIsNotABool(_)
+            | StrayBranch(_)
+            | BranchAfterElse(_) => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -228,9 +237,12 @@ impl DiagnosticKind {
             ExpectedArgSeparator => "expected-arg-separator",
             InvalidUnaryOperand { .. } => "invalid-unary-operand",
             InvalidBinaryOperands { .. } => "invalid-binary-operands",
-            UnclosedLet => "unclosed-let",
+            UnclosedBracket(_) => "unclosed-bracket",
             ExpectedAssignment => "expected-assignment",
-            TrailingAfterLet => "trailing-after-let",
+            UnexpectedTextInBracket => "unexpected-text-in-bracket",
+            ConditionIsNotABool(_) => "condition-not-a-bool",
+            StrayBranch(_) => "stray-branch",
+            BranchAfterElse(_) => "branch-after-else",
         }
     }
 }
@@ -313,13 +325,20 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "operator `{op}` cannot be applied to `{lhs}` and `{rhs}`"
             ),
-            UnclosedLet => {
-                f.write_str("`[let` is never closed, expected `]` at the end of the line")
-            }
-            ExpectedAssignment => f.write_str("expected `$name = <expression>` after `[let`"),
-            TrailingAfterLet => f.write_str(
-                "unexpected text after the value, expected nothing after the expression",
+            UnclosedBracket(marker) => write!(
+                f,
+                "`{marker}` is never closed, expected `]` at the end of the line"
             ),
+            ExpectedAssignment => f.write_str("expected `$name = <expression>` after `[let`"),
+            UnexpectedTextInBracket => f.write_str("unexpected text, expected `]` right after"),
+            ConditionIsNotABool(received) => write!(
+                f,
+                "a condition must be a `bool`, this one is a `{received}`"
+            ),
+            StrayBranch(marker) => {
+                write!(f, "`{marker}` found while no `[if]` is open")
+            }
+            BranchAfterElse(marker) => write!(f, "`{marker}` found after `[else]`"),
         }
     }
 }

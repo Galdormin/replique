@@ -125,6 +125,30 @@ fn build_block(
                 value: value.value.try_into().expect("checked by the parser"),
                 next: current_id,
             }),
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                let mut next_branch = match otherwise {
+                    Some(body) => build_block(builder, body, current_id)?,
+                    None => current_id,
+                };
+
+                for branch in branches.into_iter().rev() {
+                    let then = build_block(builder, branch.body, current_id)?;
+                    next_branch = builder.push(StepKind::Branch {
+                        condition: branch
+                            .condition
+                            .value
+                            .try_into()
+                            .expect("checked by the parser"),
+                        then,
+                        otherwise: next_branch,
+                    });
+                }
+
+                next_branch
+            }
             // `=> END` is the one jump with no node behind it.
             StmtKind::Jump(node_name) if node_name.value == END_NODE_NAME => {
                 builder.push(StepKind::End)

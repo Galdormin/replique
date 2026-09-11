@@ -271,6 +271,19 @@ impl DialogueVm {
                     self.vars.insert(name, value);
                     cursor.step = next;
                 }
+                StepKind::Branch {
+                    condition,
+                    then,
+                    otherwise,
+                } => {
+                    cursor.step = match self.eval(condition)? {
+                        Value::Bool(true) => then,
+                        Value::Bool(false) => otherwise,
+                        other => {
+                            return Err(EvalError::NotACondition(other.vtype().to_string()).into());
+                        }
+                    };
+                }
                 StepKind::Choice { choices } => {
                     self.state = VmState::Suspended {
                         cursor,
@@ -684,6 +697,99 @@ mod tests {
             err,
             VmError::ExprEvalError(EvalError::UnknownVariable(name)) if name == "unknown"
         ));
+    }
+
+    /// `[if <condition>] Alice: oui [else] Alice: non`, as the compiler
+    /// lays it out: one branch step, two bodies, both rejoining the end.
+    fn branch_dialogue(condition: Expr) -> Dialogue {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let yes = b.push(line(None, "oui", end));
+        let no = b.push(line(None, "non", end));
+        let branch = b.push(StepKind::Branch {
+            condition,
+            then: yes,
+            otherwise: no,
+        });
+        Dialogue::new(vec![b.build(NodeName::new("start"), branch).unwrap()])
+    }
+
+    #[test]
+    fn a_branch_takes_the_body_its_condition_points_at() {
+        for (condition, expected) in [(true, "oui"), (false, "non")] {
+            let mut vm = DialogueVm::default();
+            let dialogue = branch_dialogue(Expr::Litteral(Value::Bool(condition)));
+
+            let (_, text) = expect_line(vm.start(dialogue, "start").unwrap());
+
+            assert_eq!(text, expected, "condition {condition}");
+        }
+    }
+
+    #[test]
+    fn a_branch_reads_the_variables_written_before_it() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let yes = b.push(line(None, "riche", end));
+        let branch = b.push(StepKind::Branch {
+            condition: Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Var("gold".into())),
+                rhs: Box::new(lit(5)),
+            },
+            then: yes,
+            otherwise: end,
+        });
+        let set = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: lit(10),
+            next: branch,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), set).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        let (_, text) = expect_line(vm.start(dialogue, "start").unwrap());
+
+        assert_eq!(text, "riche");
+    }
+
+    /// Only a condition the parser could not type can get here, since a
+    /// variable has no type before the dialogue runs.
+    #[test]
+    fn error_on_a_condition_that_is_not_a_bool_at_run_time() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(branch_dialogue(lit(1)), "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::NotACondition(vtype)) if vtype == "int"
+        ));
+    }
+
+    /// The whole chain, from the source to the line the host sees.
+    #[test]
+    fn a_written_condition_runs() {
+        let src = ":= start\n\
+             [let $gold = 10]\n\
+             [if $gold > 5]\n\
+             \x20   Alice: J'ai plus de 5 pièces\n\
+             [else]\n\
+             \x20   Alice: J'ai pas d'argent\n\
+             ---\n";
+        let file = crate::RepliqueFile::from_source(src);
+        assert_eq!(
+            file.diagnostics.errors(),
+            0,
+            "{}",
+            file.diagnostics
+                .render(src, crate::parser::diagnostic::Color::Never)
+        );
+
+        let mut vm = DialogueVm::default();
+        let (_, text) = expect_line(vm.start(file.dialogue.unwrap(), "start").unwrap());
+
+        assert_eq!(text, "J'ai plus de 5 pièces");
     }
 
     #[test]

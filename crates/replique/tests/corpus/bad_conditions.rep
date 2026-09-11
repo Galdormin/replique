@@ -1,0 +1,19 @@
+:= start
+[else]
+    Alice: un
+[if $gold > 5
+Alice: deux
+[if 1 + 1]
+    Alice: trois
+[if true 2]
+    Alice: quatre
+[if true]
+    Alice: cinq
+[else]
+    Alice: six
+[elif false]
+    Alice: sept
+[else oups]
+    Alice: huit
+Alice: neuf
+---

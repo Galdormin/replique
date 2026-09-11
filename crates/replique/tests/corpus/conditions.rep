@@ -1,0 +1,12 @@
+:= start
+[let $gold = 10]
+[if $gold > 5]
+    Alice: J'ai plus de 5 pièces.
+    [if $gold > 100]
+        Alice: Je suis même riche.
+[elif $gold > 0]
+    Alice: J'ai trois sous.
+[else]
+    Alice: J'ai pas d'argent.
+Alice: Voilà.
+---

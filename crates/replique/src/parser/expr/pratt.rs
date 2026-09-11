@@ -13,9 +13,22 @@ const PREFIX_PRIO: u8 = 11;
 
 /// Reads the expression `src` holds, and checks the types of its operators.
 pub(crate) fn parse(src: &Spanned<&str>, diags: &mut Diagnostics) -> Spanned<Expr> {
-    let expr = ExprParser::new(src, diags).expr(0);
-    expr.value.is_type_valid(diags);
-    expr
+    parse_with_trailing(src, diags).0
+}
+
+/// Same, plus the span of what follows the expression when it does not read
+/// the whole of `src`. What to make of that text is up to the caller.
+pub(crate) fn parse_with_trailing(
+    src: &Spanned<&str>,
+    diags: &mut Diagnostics,
+) -> (Spanned<Expr>, Option<Span>) {
+    let mut parser = ExprParser::new(src, diags);
+
+    let expr = parser.expr(0);
+    expr.value.is_type_valid(parser.diags);
+    let trailing = parser.trailing(src);
+
+    (expr, trailing)
 }
 
 /// What `$name = <expression>` holds, once read.
@@ -45,13 +58,12 @@ pub(crate) fn parse_assignment(src: &Spanned<&str>, diags: &mut Diagnostics) -> 
 
     let value = parser.expr(0);
     value.value.is_type_valid(parser.diags);
+    let trailing = parser.trailing(src);
 
     Some(Assignment {
         name,
         value,
-        trailing: parser
-            .peek_span()
-            .map(|span| Span::new(span.start, src.span.end)),
+        trailing,
     })
 }
 
@@ -75,6 +87,12 @@ impl<'a> ExprParser<'a> {
 
     fn peek(&self) -> Option<&Spanned<Token>> {
         self.lexed.tokens.get(self.pos)
+    }
+
+    /// From the token left to read, if any, to the end of `src`.
+    fn trailing(&self, src: &Spanned<&str>) -> Option<Span> {
+        self.peek_span()
+            .map(|span| Span::new(span.start, src.span.end))
     }
 
     /// Span of the next token, without consuming it.

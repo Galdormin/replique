@@ -93,6 +93,25 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     at(src, stmt.span)
                 );
             }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                let _ = writeln!(out, "{pad}if-group {}", at(src, stmt.span));
+                for branch in branches {
+                    let _ = writeln!(
+                        out,
+                        "{pad}  branch {:?} {}",
+                        &src.raw[branch.condition.span.start..branch.condition.span.end],
+                        at(src, branch.span)
+                    );
+                    render_stmts(out, src, &branch.body, depth + 2);
+                }
+                if let Some(body) = otherwise {
+                    let _ = writeln!(out, "{pad}  else");
+                    render_stmts(out, src, body, depth + 2);
+                }
+            }
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
                 for Choice { text, body, span } in choices {
@@ -153,6 +172,7 @@ corpus!(
     jump_to_end,
     commands,
     lets,
+    conditions,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -169,4 +189,5 @@ corpus!(
     jump_in_choice,
     bad_commands,
     bad_lets,
+    bad_conditions,
 );

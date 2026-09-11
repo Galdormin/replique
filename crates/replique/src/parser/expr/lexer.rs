@@ -32,7 +32,7 @@ pub(crate) enum Token {
     /// rather than a number followed by unknown characters.
     #[regex(r"[0-9]+(\.[0-9]*)+", |lex| lex.slice().parse().map_err(|_| LexError::InvalidNumber))]
     Float(f64),
-    #[regex(r"[1-9][0-9]*", |lex| lex.slice().parse().map_err(|_| LexError::InvalidNumber))]
+    #[regex(r"[0-9]+", |lex| lex.slice().parse().map_err(|_| LexError::InvalidNumber))]
     Int(i64),
     #[regex(r#""([^"\\]|\\.)*""#, |lex| unescape(&lex.slice()[1..lex.slice().len() - 1]))]
     Str(String),
@@ -226,6 +226,15 @@ mod tests {
         assert_eq!(toks("!="), [Token::Ne]);
         assert_eq!(toks(">= <="), [Token::Ge, Token::Le]);
         assert_eq!(toks("= > <"), [Token::Assign, Token::Gt, Token::Lt]);
+    }
+
+    /// `0` is a number like any other, and a longer match is what tells
+    /// `0.5` from it.
+    #[test]
+    fn a_number_can_be_zero() {
+        assert_eq!(toks("0"), [Token::Int(0)]);
+        assert_eq!(toks("0.0"), [Token::Float(0.0)]);
+        assert_eq!(toks("007"), [Token::Int(7)]);
     }
 
     #[test]

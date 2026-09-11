@@ -68,6 +68,10 @@ pub enum EvalError {
     /// yet, so none of them can be answered.
     #[error("Uknown function {0}")]
     UnknownFunction(String),
+    /// The condition of an `[if]` evaluated to something else than a `bool`.
+    /// Only a condition the parser could not type can get here.
+    #[error("A condition must be a bool, received {0}")]
+    NotACondition(String),
     #[error("Type mismatch for operator {op}: expected {expected} and received {received}")]
     TypeMismatch {
         op: String,
