@@ -5,7 +5,7 @@ use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 use crate::parser::{
     END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
     diagnostic::{DiagnosticKind, Diagnostics, Label},
-    expr::{Expr, pratt::ExprParser},
+    expr::{Expr, pratt},
     lines::{LineKind, RawLine, split_lines},
 };
 
@@ -385,7 +385,7 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        let expr = ExprParser::new(&cmd, &mut self.diags).expr(0);
+        let expr = pratt::parse(&cmd, &mut self.diags);
 
         match expr.value {
             Expr::Function { name, args } => {
@@ -788,6 +788,20 @@ mod tests {
         assert_eq!(
             codes(&in_filled_node(">> play(1 2)")),
             ["expected-arg-separator"]
+        );
+    }
+
+    /// The arguments of a command go through the same type check as any other
+    /// expression, at the place they are written.
+    #[test]
+    fn error_on_an_argument_of_the_wrong_type() {
+        assert_eq!(
+            codes(&in_filled_node(">> play(not 1)")),
+            ["invalid-unary-operand"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(r#">> play("a" - 1)"#)),
+            ["invalid-binary-operands"]
         );
     }
 

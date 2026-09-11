@@ -11,6 +11,13 @@ use crate::parser::{
 /// Binding power of the unary operators, above every infix one.
 const PREFIX_PRIO: u8 = 11;
 
+/// Reads the expression `src` holds, and checks the types of its operators.
+pub(crate) fn parse(src: &Spanned<&str>, diags: &mut Diagnostics) -> Spanned<Expr> {
+    let expr = ExprParser::new(src, diags).expr(0);
+    expr.value.is_type_valid(diags);
+    expr
+}
+
 pub struct ExprParser<'a> {
     lexed: Lexed,
     pos: usize,

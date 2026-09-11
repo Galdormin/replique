@@ -126,6 +126,18 @@ pub enum DiagnosticKind {
     UnclosedParenthesis,
     /// Two arguments of a function with no `,` between them: `max(1 2)`.
     ExpectedArgSeparator,
+    /// An operator applied to a type it does not take: `not 1`.
+    InvalidUnaryOperand {
+        op: String,
+        expected: String,
+        received: String,
+    },
+    /// An operator applied to two types it does not take: `"a" - 1`.
+    InvalidBinaryOperands {
+        op: String,
+        lhs: String,
+        rhs: String,
+    },
 }
 
 impl DiagnosticKind {
@@ -157,7 +169,9 @@ impl DiagnosticKind {
             | UnknownExpressionCharacter(_)
             | ExpectedExpression
             | UnclosedParenthesis
-            | ExpectedArgSeparator => Severity::Error,
+            | ExpectedArgSeparator
+            | InvalidUnaryOperand { .. }
+            | InvalidBinaryOperands { .. } => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -203,6 +217,8 @@ impl DiagnosticKind {
             ExpectedExpression => "expected-expression",
             UnclosedParenthesis => "unclosed-parenthesis",
             ExpectedArgSeparator => "expected-arg-separator",
+            InvalidUnaryOperand { .. } => "invalid-unary-operand",
+            InvalidBinaryOperands { .. } => "invalid-binary-operands",
         }
     }
 }
@@ -273,6 +289,18 @@ impl fmt::Display for DiagnosticKind {
             ExpectedExpression => f.write_str("expected an expression"),
             UnclosedParenthesis => f.write_str("`(` is never closed, expected `)`"),
             ExpectedArgSeparator => f.write_str("expected `,` or `)` after this function argument"),
+            InvalidUnaryOperand {
+                op,
+                expected,
+                received,
+            } => write!(
+                f,
+                "operator `{op}` expects {expected}, received `{received}`"
+            ),
+            InvalidBinaryOperands { op, lhs, rhs } => write!(
+                f,
+                "operator `{op}` cannot be applied to `{lhs}` and `{rhs}`"
+            ),
         }
     }
 }

@@ -31,7 +31,7 @@ pub(crate) enum BuildError {
     /// A step points at itself, which would spin forever at run time.
     #[error("Self referencing for {0:?}")]
     SelfReferencing(StepId),
-    /// An expr is [`Expr::Error`] and should have not compiled
+    /// An expr is [`crate::parser::expr::Expr::Error`] and should have not compiled
     #[error("An expr is in error")]
     ErrorInExpr,
 }

@@ -13,4 +13,6 @@ Alice: cinq
 Alice: six
 >> play (1)
 Alice: sept
+>> play("a" - 1)
+Alice: huit
 ---
