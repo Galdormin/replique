@@ -1,0 +1,12 @@
+:= start
+[let $gold = 10
+Alice: un
+[let $gold + 1]
+Alice: deux
+[let]
+Alice: trois
+[let $gold = 10 20]
+Alice: quatre
+[let $gold = "a" - 1]
+Alice: cinq
+---

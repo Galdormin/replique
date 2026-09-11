@@ -1,0 +1,21 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set gold "10" @2:1 "[let $gold = 10]"
+  if-group @3:1 "[if $gold > 5]\n    Alice: J'ai plus de 5 pièces.\n    [if $gold > 100]\n        Alice: Je suis même riche.\n[elif $gold > 0]\n    Alice: J'ai trois sous.\n[else]\n    Alice: J'ai pas d'argent."
+    branch "$gold > 5" @3:1 "[if $gold > 5]\n    Alice: J'ai plus de 5 pièces.\n    [if $gold > 100]\n        Alice: Je suis même riche."
+      line Alice "J'ai plus de 5 pièces." @4:5 "Alice: J'ai plus de 5 pièces."
+      if-group @5:5 "[if $gold > 100]\n        Alice: Je suis même riche."
+        branch "$gold > 100" @5:5 "[if $gold > 100]\n        Alice: Je suis même riche."
+          line Alice "Je suis même riche." @6:9 "Alice: Je suis même riche."
+    branch "$gold > 0" @7:1 "[elif $gold > 0]\n    Alice: J'ai trois sous."
+      line Alice "J'ai trois sous." @8:5 "Alice: J'ai trois sous."
+    else
+      line Alice "J'ai pas d'argent." @10:5 "Alice: J'ai pas d'argent."
+  line Alice "Voilà." @11:1 "Alice: Voilà."
+
+== diagnostics ==
+(none)

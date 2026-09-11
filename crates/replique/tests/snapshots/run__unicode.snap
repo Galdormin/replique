@@ -1,0 +1,7 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"depart\")"
+---
+say Élise "Où vas-tu ? 🌙"
+say - "Le vent se leva — puis rien."
+end

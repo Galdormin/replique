@@ -1,0 +1,21 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "un" @3:1 "Alice: un"
+  line Alice "deux" @5:1 "Alice: deux"
+  line Alice "trois" @7:1 "Alice: trois"
+  line Alice "quatre" @9:1 "Alice: quatre"
+  set gold "\"a\" - 1" @10:1 "[let $gold = \"a\" - 1]"
+  line Alice "cinq" @11:1 "Alice: cinq"
+
+== diagnostics ==
+error unclosed-bracket @2:1 "[let $gold = 10"
+error expected-assignment @4:1 "[let $gold + 1]"
+error expected-assignment @6:1 "[let]"
+error unexpected-text-in-bracket @8:17 "20"
+error invalid-binary-operands @10:14 "\"a\" - 1"
+  label string @10:14 "\"a\""
+  label int @10:20 "1"

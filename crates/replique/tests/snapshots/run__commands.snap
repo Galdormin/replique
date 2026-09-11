@@ -1,0 +1,14 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+command fade_in()
+say Alice "Tu entends ça ?"
+command play("cloche", 0.5, true)
+choices ["Oui", "Non"]
+  pick 0 "Oui"
+command set_flag("entendu")
+say Bob "Moi aussi."
+command play("cloche", 1.5, true)
+command fade_out()
+end

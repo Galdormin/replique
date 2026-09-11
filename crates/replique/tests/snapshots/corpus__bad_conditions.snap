@@ -1,0 +1,24 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  if-group @4:1 "[if $gold > 5"
+  line Alice "deux" @5:1 "Alice: deux"
+  if-group @6:1 "[if 1 + 1]\n    Alice: trois"
+  if-group @8:1 "[if true 2]\n    Alice: quatre"
+  if-group @10:1 "[if true]\n    Alice: cinq\n[else]\n    Alice: six\n[elif false]\n    Alice: sept\n[else oups]\n    Alice: huit"
+    branch "true" @10:1 "[if true]\n    Alice: cinq"
+      line Alice "cinq" @11:5 "Alice: cinq"
+    else
+      line Alice "six" @13:5 "Alice: six"
+  line Alice "neuf" @18:1 "Alice: neuf"
+
+== diagnostics ==
+error stray-branch @2:1 "[else]"
+error unclosed-bracket @4:1 "[if $gold > 5"
+error condition-not-a-bool @6:5 "1 + 1"
+error unexpected-text-in-bracket @8:10 "2"
+error branch-after-else @14:1 "[elif false]"
+error branch-after-else @16:1 "[else oups]"

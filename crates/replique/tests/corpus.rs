@@ -70,13 +70,47 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                 let _ = writeln!(out, "{pad}jump {} {}", target.value, at(src, stmt.span));
             }
             StmtKind::Command { name, args } => {
+                // Arguments are shown as the text they cover: an expression
+                // debug-prints its own spans, which the doc above forbids.
+                let args = args
+                    .iter()
+                    .map(|arg| &src.raw[arg.span.start..arg.span.end])
+                    .collect::<Vec<_>>();
                 let _ = writeln!(
                     out,
                     "{pad}command {} {:?} {}",
                     name.value,
-                    args.iter().map(|s| &s.value).collect::<Vec<_>>(),
+                    args,
                     at(src, stmt.span)
                 );
+            }
+            StmtKind::Set { name, value } => {
+                let _ = writeln!(
+                    out,
+                    "{pad}set {} {:?} {}",
+                    name.value,
+                    &src.raw[value.span.start..value.span.end],
+                    at(src, stmt.span)
+                );
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                let _ = writeln!(out, "{pad}if-group {}", at(src, stmt.span));
+                for branch in branches {
+                    let _ = writeln!(
+                        out,
+                        "{pad}  branch {:?} {}",
+                        &src.raw[branch.condition.span.start..branch.condition.span.end],
+                        at(src, branch.span)
+                    );
+                    render_stmts(out, src, &branch.body, depth + 2);
+                }
+                if let Some(body) = otherwise {
+                    let _ = writeln!(out, "{pad}  else");
+                    render_stmts(out, src, body, depth + 2);
+                }
             }
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
@@ -137,6 +171,9 @@ corpus!(
     forward_jump,
     jump_to_end,
     commands,
+    lets,
+    conditions,
+    else_branch,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -152,4 +189,6 @@ corpus!(
     unknown_jump,
     jump_in_choice,
     bad_commands,
+    bad_lets,
+    bad_conditions,
 );

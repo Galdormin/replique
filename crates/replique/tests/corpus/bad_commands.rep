@@ -9,4 +9,10 @@ Alice: trois
 Alice: quatre
 >> play(1) oups
 Alice: cinq
+>> fade_in
+Alice: six
+>> play (1)
+Alice: sept
+>> play("a" - 1)
+Alice: huit
 ---

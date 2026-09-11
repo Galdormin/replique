@@ -1,0 +1,7 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+choices ["Partir", "Rester"]
+  pick 0 "Partir"
+end

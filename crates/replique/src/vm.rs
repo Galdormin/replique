@@ -36,9 +36,14 @@
 //! go wrong is a [`VmError`], including the step limit that catches
 //! nodes jumping to each other forever.
 
+use std::collections::HashMap;
+
 use thiserror::Error;
 
-use crate::dialogue::{Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Value};
+use crate::dialogue::{
+    Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Value,
+    expr::{EvalError, Expr},
+};
 
 /// How many steps a single [`DialogueVm::start`] or [`DialogueVm::resume`] may
 /// walk before giving up with [`VmError::StepLimitExceeded`].
@@ -157,6 +162,9 @@ pub enum VmError {
     /// which means the dialogue loops on itself.
     #[error("Step limit exceeded")]
     StepLimitExceeded,
+    /// Error when evaluating expression
+    #[error("EvalError: {0}")]
+    ExprEvalError(#[from] EvalError),
 }
 
 /// State of a [`DialogueVm`] between two calls.
@@ -184,6 +192,7 @@ enum VmState {
 pub struct DialogueVm {
     dialogue: Option<Dialogue>,
     state: VmState,
+    vars: HashMap<String, Value>,
 }
 
 impl DialogueVm {
@@ -206,6 +215,11 @@ impl DialogueVm {
 
         let cursor = self.get_cursor_for_node(name.into())?;
         self.run(cursor)
+    }
+
+    /// Every variable the dialogue has written, and its value.
+    pub fn vars(&self) -> &HashMap<String, Value> {
+        &self.vars
     }
 
     /// Answer the last [`DialogueEvent`] and run up to the next one.
@@ -240,14 +254,40 @@ impl DialogueVm {
                     });
                 }
                 StepKind::Command { command, next } => {
+                    // Evaluated before the state moves: an argument that does
+                    // not evaluate must leave the VM where it was.
+                    let args = command
+                        .args
+                        .into_iter()
+                        .map(|e| self.eval(e))
+                        .collect::<Result<_, _>>()?;
+
                     self.state = VmState::Suspended {
                         cursor,
                         at: SuspendedAt::Command { next },
                     };
                     return Ok(DialogueEvent::Command {
                         name: command.name,
-                        args: command.args,
+                        args,
                     });
+                }
+                StepKind::Set { name, value, next } => {
+                    let value = self.eval(value)?;
+                    self.vars.insert(name, value);
+                    cursor.step = next;
+                }
+                StepKind::Branch {
+                    condition,
+                    then,
+                    otherwise,
+                } => {
+                    cursor.step = match self.eval(condition)? {
+                        Value::Bool(true) => then,
+                        Value::Bool(false) => otherwise,
+                        other => {
+                            return Err(EvalError::NotACondition(other.vtype().to_string()).into());
+                        }
+                    };
                 }
                 StepKind::Choice { choices } => {
                     self.state = VmState::Suspended {
@@ -298,13 +338,23 @@ impl DialogueVm {
     fn get_step_at(&self, cursor: &Cursor) -> Result<&Step, VmError> {
         Ok(self.get_node_at(cursor)?.get_step(&cursor.step))
     }
+
+    /// Eval an Expr
+    fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
+        expr.eval(&self.vars)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dialogue::builder::DialogueNodeBuilder;
-    use crate::dialogue::{ChoiceDef, Command, TextLine};
+    use crate::dialogue::{ChoiceDef, Command, TextLine, expr::Expr};
+    use crate::parser::expr::BinaryOp;
+
+    fn lit(value: i64) -> Expr {
+        Expr::Litteral(Value::Int(value))
+    }
 
     fn line(speaker: Option<&str>, text: &str, next: StepId) -> StepKind {
         StepKind::Say {
@@ -331,7 +381,10 @@ mod tests {
         let cmd = b.push(StepKind::Command {
             command: Command {
                 name: "play".into(),
-                args: vec![Value::String("bell".into()), Value::Float(0.5)],
+                args: vec![
+                    Expr::Litteral(Value::String("bell".into())),
+                    Expr::Litteral(Value::Float(0.5)),
+                ],
             },
             next: l1,
         });
@@ -566,6 +619,182 @@ mod tests {
         let err = expect_err(vm.resume(ResumeEvent::Select(0)));
 
         assert!(matches!(err, VmError::WrongResumeEvent));
+    }
+
+    /// A node that assigns `$gold`, then hands it to a command, so the value
+    /// the host receives is the one the assignment computed.
+    fn set_dialogue(value: Expr) -> Dialogue {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let cmd = b.push(StepKind::Command {
+            command: Command {
+                name: "show".into(),
+                args: vec![Expr::Var("gold".into())],
+            },
+            next: end,
+        });
+        let set = b.push(StepKind::Set {
+            name: "gold".into(),
+            value,
+            next: cmd,
+        });
+        Dialogue::new(vec![b.build(NodeName::new("start"), set).unwrap()])
+    }
+
+    fn expect_command(event: DialogueEvent) -> (String, Vec<Value>) {
+        match event {
+            DialogueEvent::Command { name, args } => (name, args),
+            _ => panic!("expected a Command event"),
+        }
+    }
+
+    #[test]
+    fn an_assignment_is_invisible_and_gives_a_variable_its_value() {
+        let mut vm = DialogueVm::default();
+
+        let (name, args) = expect_command(vm.start(set_dialogue(lit(10)), "start").unwrap());
+
+        assert_eq!(name, "show");
+        assert_eq!(args, [Value::Int(10)]);
+    }
+
+    #[test]
+    fn an_assignment_reads_the_variables_written_before_it() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let cmd = b.push(StepKind::Command {
+            command: Command {
+                name: "show".into(),
+                args: vec![Expr::Var("gold".into())],
+            },
+            next: end,
+        });
+        let second = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: Expr::Binary {
+                op: BinaryOp::Add,
+                lhs: Box::new(Expr::Var("gold".into())),
+                rhs: Box::new(lit(5)),
+            },
+            next: cmd,
+        });
+        let first = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: lit(10),
+            next: second,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), first).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        let (_, args) = expect_command(vm.start(dialogue, "start").unwrap());
+
+        assert_eq!(args, [Value::Int(15)]);
+    }
+
+    /// A variable nobody wrote is an error, not a default value.
+    #[test]
+    fn error_on_a_variable_that_was_never_assigned() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(set_dialogue(Expr::Var("unknown".into())), "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::UnknownVariable(name)) if name == "unknown"
+        ));
+    }
+
+    /// `[if <condition>] Alice: oui [else] Alice: non`, as the compiler
+    /// lays it out: one branch step, two bodies, both rejoining the end.
+    fn branch_dialogue(condition: Expr) -> Dialogue {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let yes = b.push(line(None, "oui", end));
+        let no = b.push(line(None, "non", end));
+        let branch = b.push(StepKind::Branch {
+            condition,
+            then: yes,
+            otherwise: no,
+        });
+        Dialogue::new(vec![b.build(NodeName::new("start"), branch).unwrap()])
+    }
+
+    #[test]
+    fn a_branch_takes_the_body_its_condition_points_at() {
+        for (condition, expected) in [(true, "oui"), (false, "non")] {
+            let mut vm = DialogueVm::default();
+            let dialogue = branch_dialogue(Expr::Litteral(Value::Bool(condition)));
+
+            let (_, text) = expect_line(vm.start(dialogue, "start").unwrap());
+
+            assert_eq!(text, expected, "condition {condition}");
+        }
+    }
+
+    #[test]
+    fn a_branch_reads_the_variables_written_before_it() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let yes = b.push(line(None, "riche", end));
+        let branch = b.push(StepKind::Branch {
+            condition: Expr::Binary {
+                op: BinaryOp::Gt,
+                lhs: Box::new(Expr::Var("gold".into())),
+                rhs: Box::new(lit(5)),
+            },
+            then: yes,
+            otherwise: end,
+        });
+        let set = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: lit(10),
+            next: branch,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), set).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        let (_, text) = expect_line(vm.start(dialogue, "start").unwrap());
+
+        assert_eq!(text, "riche");
+    }
+
+    /// Only a condition the parser could not type can get here, since a
+    /// variable has no type before the dialogue runs.
+    #[test]
+    fn error_on_a_condition_that_is_not_a_bool_at_run_time() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(branch_dialogue(lit(1)), "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::NotACondition(vtype)) if vtype == "int"
+        ));
+    }
+
+    /// The whole chain, from the source to the line the host sees.
+    #[test]
+    fn a_written_condition_runs() {
+        let src = ":= start\n\
+             [let $gold = 10]\n\
+             [if $gold > 5]\n\
+             \x20   Alice: J'ai plus de 5 pièces\n\
+             [else]\n\
+             \x20   Alice: J'ai pas d'argent\n\
+             ---\n";
+        let file = crate::RepliqueFile::from_source(src);
+        assert_eq!(
+            file.diagnostics.errors(),
+            0,
+            "{}",
+            file.diagnostics
+                .render(src, crate::parser::diagnostic::Color::Never)
+        );
+
+        let mut vm = DialogueVm::default();
+        let (_, text) = expect_line(vm.start(file.dialogue.unwrap(), "start").unwrap());
+
+        assert_eq!(text, "J'ai plus de 5 pièces");
     }
 
     #[test]

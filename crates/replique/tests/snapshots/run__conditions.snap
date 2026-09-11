@@ -1,0 +1,8 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+  $gold = 10
+say Alice "J'ai plus de 5 pièces."
+say Alice "Voilà."
+end

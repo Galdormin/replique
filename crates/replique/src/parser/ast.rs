@@ -3,9 +3,9 @@
 use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
 use crate::parser::{
-    END_NODE_NAME, LineIndex, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
-    command::split_command,
+    END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
     diagnostic::{DiagnosticKind, Diagnostics, Label},
+    expr::{Expr, ValueType, pratt},
     lines::{LineKind, RawLine, split_lines},
 };
 
@@ -32,8 +32,29 @@ pub enum StmtKind {
     Jump(Spanned<String>),
     Command {
         name: Spanned<String>,
-        args: Vec<Spanned<Value>>,
+        args: Vec<Spanned<Expr>>,
     },
+    Set {
+        /// Name of the variable, without its `$`.
+        name: Spanned<String>,
+        value: Spanned<Expr>,
+    },
+    /// `[if]`, its `[elif]` and its `[else]`, in the order they are written.
+    If {
+        /// The `[if]` and every `[elif]` after it, never empty.
+        branches: Vec<Branch>,
+        /// Body of the `[else]`, when the block has one.
+        otherwise: Option<Vec<Stmt>>,
+    },
+}
+
+/// One `[if <cond>]` or `[elif <cond>]`, and the block indented under it.
+#[derive(Debug)]
+pub struct Branch {
+    pub condition: Spanned<Expr>,
+    pub body: Vec<Stmt>,
+    /// From the marker to the last statement of the body.
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -104,7 +125,7 @@ impl Value {
 }
 
 pub fn parse(src: &str) -> Parsed {
-    let mut diagnostics = Diagnostics::new(LineIndex::new(src));
+    let mut diagnostics = Diagnostics::from_src(src);
     let lines = split_lines(src, &mut diagnostics);
 
     let mut parser = Parser::new(lines, diagnostics);
@@ -266,6 +287,7 @@ impl<'a> Parser<'a> {
 
             match line.kind {
                 LineKind::Choice(_) => out.push(self.parse_choice_group()),
+                LineKind::If(_) => out.push(self.parse_if()),
                 _ => out.extend(self.parse_line()),
             }
         }
@@ -318,6 +340,149 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Groups an `[if]` with the `[elif]` and `[else]` that follow it at the
+    /// same indentation, each owning the block indented under it.
+    ///
+    /// A branch that cannot be there — an `[elif]` after the `[else]`, a
+    /// second `[else]` — is reported and dropped with its body, which nothing
+    /// could have reached anyway.
+    fn parse_if(&mut self) -> Stmt {
+        let first = self.peek().expect("Already checked by parse_block.");
+        let base = first.indent;
+        let mut branches: Vec<Branch> = vec![];
+        let mut otherwise = None;
+        let mut span = first.span;
+        // Whether the `[if]` has been read, and not whether a branch came out
+        // of it: a condition that is dropped must not let the next `[if]`
+        // join this group.
+        let mut started = false;
+
+        while let Some(line) = self.peek() {
+            if line.indent != base {
+                break;
+            }
+
+            // What this line is for the group: a condition to read, or the
+            // `[else]`. Anything else, and the group is over.
+            let marker = match line.kind {
+                LineKind::If(_) if !started => "[if]",
+                LineKind::Elif(_) if started => "[elif]",
+                LineKind::Else(_) if started => "[else]",
+                _ => break,
+            };
+            started = true;
+            let kind = line.kind;
+            let line_span = line.span;
+            self.bump();
+
+            let body = self.parse_block(base + 1);
+            let body_span = body.last().map_or(line_span, |s| line_span.join(s.span));
+            span = span.join(body_span);
+
+            if otherwise.is_some() {
+                self.diags
+                    .push(line_span, DiagnosticKind::BranchAfterElse(marker.into()));
+                continue;
+            }
+
+            match kind {
+                LineKind::Else(rest) => {
+                    self.expect_empty_bracket(rest, line_span, marker);
+                    otherwise = Some(body);
+                }
+                LineKind::If(cond) | LineKind::Elif(cond) => {
+                    match self.parse_condition(cond, line_span, marker) {
+                        Some(condition) => branches.push(Branch {
+                            condition,
+                            body,
+                            span: body_span,
+                        }),
+                        // The condition is already reported; keeping the
+                        // branch would mean keeping a body nothing guards.
+                        None => continue,
+                    }
+                }
+                _ => unreachable!("checked when the marker was named"),
+            }
+        }
+
+        // A group where every branch was dropped is empty, and compiles to
+        // nothing. It only happens once something has been reported, so the
+        // file has no dialogue to run anyway.
+        Stmt {
+            kind: StmtKind::If {
+                branches,
+                otherwise,
+            },
+            span,
+        }
+    }
+
+    /// The condition of an `[if]` or an `[elif]`, which must be a `bool`.
+    fn parse_condition(
+        &mut self,
+        body: Spanned<&str>,
+        line_span: Span,
+        marker: &str,
+    ) -> Option<Spanned<Expr>> {
+        let inner = self.strip_bracket(body, line_span, marker)?;
+        let (expr, trailing) = pratt::parse_with_trailing(&inner, &mut self.diags);
+
+        if let Some(span) = trailing {
+            self.diags
+                .push(span, DiagnosticKind::UnexpectedTextInBracket);
+            return None;
+        }
+        if let Expr::Error = expr.value {
+            return None;
+        }
+
+        // `Unknown` is what a variable or a call is worth before the dialogue
+        // runs: the VM checks those again when it evaluates them.
+        match expr.value.value_type() {
+            Some(ValueType::Bool | ValueType::Unknown) => Some(expr),
+            Some(other) => {
+                self.diags.push(
+                    expr.span,
+                    DiagnosticKind::ConditionIsNotABool(other.to_string()),
+                );
+                None
+            }
+            // An operator applied to the wrong types, already reported.
+            None => None,
+        }
+    }
+
+    /// Text between a bracketed marker and its `]`.
+    fn strip_bracket<'b>(
+        &mut self,
+        body: Spanned<&'b str>,
+        line_span: Span,
+        marker: &str,
+    ) -> Option<Spanned<&'b str>> {
+        match body.value.trim_end().strip_suffix(']') {
+            Some(inner) => Some(Spanned::from_text(inner.trim_end(), body.span.start)),
+            None => {
+                self.diags.push(
+                    line_span,
+                    DiagnosticKind::UnclosedBracket(marker.trim_end_matches(']').into()),
+                );
+                None
+            }
+        }
+    }
+
+    /// A marker that takes nothing, such as `[else]`.
+    fn expect_empty_bracket(&mut self, body: Spanned<&str>, line_span: Span, marker: &str) {
+        let Some(inner) = self.strip_bracket(body, line_span, marker) else {
+            return;
+        };
+        if !inner.value.trim().is_empty() {
+            self.diags
+                .push(inner.span, DiagnosticKind::UnexpectedTextInBracket);
+        }
+    }
+
     /// Parse a line that is not a block line (choice, while, if, etc.)
     fn parse_line(&mut self) -> Option<Stmt> {
         let line = self.bump().expect("Already checked by peek.");
@@ -346,6 +511,20 @@ impl<'a> Parser<'a> {
                 None
             }
             LineKind::Command(cmd) => self.parse_command(cmd, line.span),
+            LineKind::Let(body) => self.parse_let(body, line.span),
+            // The block under a branch with no `[if]` has nowhere to go
+            // either: reading and dropping it keeps the whole mistake to a
+            // single diagnostic.
+            LineKind::Elif(_) | LineKind::Else(_) => {
+                let marker = match line.kind {
+                    LineKind::Elif(_) => "[elif]",
+                    _ => "[else]",
+                };
+                self.diags
+                    .push(line.span, DiagnosticKind::StrayBranch(marker.into()));
+                self.parse_block(line.indent + 1);
+                None
+            }
             LineKind::Malformed(marker) => {
                 self.diags.push(
                     line.span,
@@ -353,77 +532,89 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
-            LineKind::Choice(_) | LineKind::NodeStart(_) | LineKind::NodeEnd => {
+            LineKind::If(_) | LineKind::Choice(_) | LineKind::NodeStart(_) | LineKind::NodeEnd => {
                 debug_assert!(false, "handle by parse_block");
                 None
             }
         }
     }
 
-    /// `>> name`, `>> name()` or `>> name(1, "two", true)`.
+    /// `>> name()` or `>> name(1, $gold + 1, true)`. The `(` follows the name
+    /// directly, and every argument is an expression.
     /// A malformed command is dropped.
     fn parse_command(&mut self, cmd: Spanned<&str>, line_span: Span) -> Option<Stmt> {
-        if cmd.value.is_empty() {
+        // The name is read before the expression parser sees the line: a
+        // faulty one is named as such, instead of being reported as a whole
+        // expression that happens not to be a call.
+        let name = cmd
+            .value
+            .split('(')
+            .next()
+            .expect("always one part")
+            .trim_end();
+        if name.is_empty() {
             self.diags.push(line_span, DiagnosticKind::EmptyCommand);
             return None;
         }
-
-        let parts = split_command(cmd);
-
-        if let Some(s) = parts.unterminated_string {
-            self.diags.push(s, DiagnosticKind::UnterminatedString);
-            return None;
-        }
-        // Checked before `closed`, which is also false when text trails.
-        if let Some(trailing) = parts.trailing {
-            self.diags
-                .push(trailing.span, DiagnosticKind::TrailingAfterCommand);
-            return None;
-        }
-        if !parts.closed {
-            self.diags
-                .push(cmd.span, DiagnosticKind::UnclosedCommandArgs);
-            return None;
-        }
-
-        if parts.name.value.is_empty() {
-            self.diags.push(cmd.span, DiagnosticKind::EmptyCommand);
-        } else if !is_valid_ident(parts.name.value) {
+        if !is_valid_ident(name) {
             self.diags.push(
-                parts.name.span,
-                DiagnosticKind::InvalidCommandName(parts.name.value.into()),
+                Span::from_length(cmd.span.start, name.len()),
+                DiagnosticKind::InvalidCommandName(name.to_owned()),
             );
+            return None;
         }
 
-        let values = parts
-            .args
-            .iter()
-            .filter_map(|arg| {
-                let maybe_val = Value::parse(arg.value);
-                if maybe_val.is_none() {
+        let expr = pratt::parse(&cmd, &mut self.diags);
+
+        match expr.value {
+            Expr::Function { name, args } => {
+                if cmd.span != expr.span {
+                    // Spaces between the `)` and the text are not the text.
+                    let rest = cmd.value[expr.span.end - cmd.span.start..].trim_start();
                     self.diags.push(
-                        arg.span,
-                        DiagnosticKind::InvalidCommandArgument(arg.value.into()),
+                        Span::new(cmd.span.end - rest.len(), cmd.span.end),
+                        DiagnosticKind::TrailingAfterCommand,
                     );
                 }
-                maybe_val.map(|v| Spanned {
-                    value: v,
-                    span: arg.span,
-                })
-            })
-            .collect::<Vec<_>>();
 
-        // An arg could not be parsed
-        if values.len() != parts.args.len() {
+                Some(Stmt {
+                    kind: StmtKind::Command { name, args },
+                    span: expr.span,
+                })
+            }
+            Expr::Error => None,
+            _ => {
+                self.diags.push(expr.span, DiagnosticKind::ExpectedCommand);
+                None
+            }
+        }
+    }
+
+    /// `[let $name = <expr>]`. A malformed assignment is dropped.
+    fn parse_let(&mut self, body: Spanned<&str>, line_span: Span) -> Option<Stmt> {
+        let inner = self.strip_bracket(body, line_span, "[let")?;
+
+        let Some(assignment) = pratt::parse_assignment(&inner, &mut self.diags) else {
+            self.diags
+                .push(line_span, DiagnosticKind::ExpectedAssignment);
+            return None;
+        };
+
+        if let Some(span) = assignment.trailing {
+            self.diags
+                .push(span, DiagnosticKind::UnexpectedTextInBracket);
+            return None;
+        }
+        if let Expr::Error = assignment.value.value {
             return None;
         }
 
         Some(Stmt {
-            kind: StmtKind::Command {
-                name: parts.name.into(),
-                args: values,
+            kind: StmtKind::Set {
+                name: assignment.name,
+                value: assignment.value,
             },
-            span: cmd.span,
+            span: line_span,
         })
     }
 
@@ -506,7 +697,10 @@ pub(super) fn is_valid_ident(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::diagnostic::DiagnosticKind;
+    use crate::parser::{
+        diagnostic::DiagnosticKind,
+        expr::{BinaryOp, UnaryOp},
+    };
 
     /// The single statement of a one-node file.
     fn only_stmt(src: &str) -> StmtKind {
@@ -529,14 +723,19 @@ mod tests {
         format!(":= start\n{line}\nAlice: ok\n---\n")
     }
 
-    /// Name and values of a command, spans dropped.
-    fn command(line: &str) -> (String, Vec<Value>) {
+    /// Name and arguments of a command, spans dropped.
+    fn command(line: &str) -> (String, Vec<Expr>) {
         match only_stmt(&in_node(line)) {
             StmtKind::Command { name, args } => {
                 (name.value, args.into_iter().map(|a| a.value).collect())
             }
             other => panic!("expected a command, got {other:?}"),
         }
+    }
+
+    /// A literal argument, as the expression parser builds it.
+    fn lit(value: Value) -> Expr {
+        Expr::Litteral { value }
     }
 
     fn codes(src: &str) -> Vec<&'static str> {
@@ -639,25 +838,57 @@ mod tests {
     }
 
     #[test]
-    fn a_command_without_parentheses_takes_no_argument() {
-        assert_eq!(command(">> pause"), ("pause".to_string(), vec![]));
+    fn a_command_without_argument_keeps_its_parentheses() {
         assert_eq!(command(">> pause()"), ("pause".to_string(), vec![]));
+        assert_eq!(codes(&in_filled_node(">> pause")), ["expected-command"]);
     }
 
     #[test]
     fn a_command_parses_every_kind_of_value() {
-        let (name, args) = command(r#">> play("bell", 0.5, -2, true, loop)"#);
+        let (name, args) = command(r#">> play("bell", 0.5, 2, true, loop)"#);
 
         assert_eq!(name, "play");
         assert_eq!(
             args,
             vec![
-                Value::String("bell".into()),
-                Value::Float(0.5),
-                Value::Int(-2),
-                Value::Bool(true),
-                Value::String("loop".into()),
+                lit(Value::String("bell".into())),
+                lit(Value::Float(0.5)),
+                lit(Value::Int(2)),
+                lit(Value::Bool(true)),
+                lit(Value::String("loop".into())),
             ]
+        );
+    }
+
+    /// `-2` is the negation of `2`, not a literal: the lexer never gives a
+    /// sign to a number.
+    #[test]
+    fn a_negative_number_is_a_negation() {
+        let (_, args) = command(">> play(-2)");
+
+        assert!(
+            matches!(
+                args.as_slice(),
+                [Expr::Unary { op, rhs }]
+                    if op.value == UnaryOp::Neg && rhs.value == lit(Value::Int(2))
+            ),
+            "expected a negation, got {args:?}"
+        );
+    }
+
+    #[test]
+    fn an_argument_can_be_a_whole_expression() {
+        let (_, args) = command(">> play($gold + 1)");
+
+        assert!(
+            matches!(
+                args.as_slice(),
+                [Expr::Binary { op, lhs, rhs }]
+                    if op.value == BinaryOp::Add
+                        && lhs.value == (Expr::Var { name: "gold".into() })
+                        && rhs.value == lit(Value::Int(1))
+            ),
+            "expected an addition, got {args:?}"
         );
     }
 
@@ -665,22 +896,32 @@ mod tests {
     fn a_comma_inside_a_string_does_not_split_the_arguments() {
         let (_, args) = command(r#">> say("un, deux")"#);
 
-        assert_eq!(args, vec![Value::String("un, deux".into())]);
+        assert_eq!(args, vec![lit(Value::String("un, deux".into()))]);
     }
 
     #[test]
     fn a_string_argument_unescapes_its_quotes_and_backslashes() {
         let (_, args) = command(r#">> say("a \" b \\ c")"#);
 
-        assert_eq!(args, vec![Value::String(r#"a " b \ c"#.into())]);
+        assert_eq!(args, vec![lit(Value::String(r#"a " b \ c"#.into()))]);
     }
 
     #[test]
-    fn spaces_around_the_name_and_the_arguments_are_ignored() {
+    fn spaces_around_the_arguments_are_ignored() {
         assert_eq!(
-            command(">> play ( 1 , 2 )"),
-            ("play".to_string(), vec![Value::Int(1), Value::Int(2)])
+            command(">> play( 1 , 2 )"),
+            (
+                "play".to_string(),
+                vec![lit(Value::Int(1)), lit(Value::Int(2))]
+            )
         );
+    }
+
+    /// `play (1)` reads as the word `play` followed by a parenthesis, not as
+    /// a call: the `(` belongs to the name.
+    #[test]
+    fn a_space_before_the_parenthesis_is_not_a_call() {
+        assert_eq!(codes(&in_filled_node(">> play (1)")), ["expected-command"]);
     }
 
     #[test]
@@ -689,7 +930,10 @@ mod tests {
 
         assert_eq!(
             args,
-            vec![Value::String("inf".into()), Value::String("NaN".into())]
+            vec![
+                lit(Value::String("inf".into())),
+                lit(Value::String("NaN".into()))
+            ]
         );
     }
 
@@ -719,10 +963,7 @@ mod tests {
 
     #[test]
     fn error_on_an_unclosed_argument_list() {
-        assert_eq!(
-            codes(&in_filled_node(">> play(1")),
-            ["unclosed-command-args"]
-        );
+        assert_eq!(codes(&in_filled_node(">> play(1")), ["unclosed-call"]);
     }
 
     /// Text left after the `)` has its own diagnostic, so that the arguments
@@ -740,25 +981,269 @@ mod tests {
     fn error_on_an_unterminated_string_argument() {
         assert_eq!(
             codes(&in_filled_node(r#">> play("oups)"#)),
-            ["unterminated-string"]
+            ["unterminated-string", "unclosed-call"]
         );
     }
 
     #[test]
-    fn error_on_an_argument_that_is_not_a_value() {
-        assert_eq!(
-            codes(&in_filled_node(">> play(1..2)")),
-            ["invalid-command-argument"]
-        );
+    fn error_on_an_argument_that_does_not_parse() {
+        assert_eq!(codes(&in_filled_node(">> play(1..2)")), ["invalid-number"]);
         assert_eq!(
             codes(&in_filled_node(">> play(1,)")),
-            ["invalid-command-argument"]
+            ["expected-expression"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(">> play(1 2)")),
+            ["expected-arg-separator"]
+        );
+    }
+
+    /// The arguments of a command go through the same type check as any other
+    /// expression, at the place they are written.
+    #[test]
+    fn error_on_an_argument_of_the_wrong_type() {
+        assert_eq!(
+            codes(&in_filled_node(">> play(not 1)")),
+            ["invalid-unary-operand"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(r#">> play("a" - 1)"#)),
+            ["invalid-binary-operands"]
+        );
+    }
+
+    /// Name and value of an assignment, the value as the text it covers.
+    fn set(line: &str) -> (String, String) {
+        let src = in_node(line);
+        match only_stmt(&src) {
+            StmtKind::Set { name, value } => {
+                (name.value, src[value.span.start..value.span.end].to_owned())
+            }
+            other => panic!("expected an assignment, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_assignment_takes_a_name_and_an_expression() {
+        assert_eq!(
+            set("[let $gold = 10]"),
+            ("gold".to_string(), "10".to_string())
+        );
+        assert_eq!(
+            set("[let $gold = $gold + 10]"),
+            ("gold".to_string(), "$gold + 10".to_string())
+        );
+    }
+
+    #[test]
+    fn spaces_around_an_assignment_are_ignored() {
+        assert_eq!(
+            set("[let   $gold=10  ]"),
+            ("gold".to_string(), "10".to_string())
+        );
+    }
+
+    #[test]
+    fn error_on_an_assignment_that_is_never_closed() {
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 10")),
+            ["unclosed-bracket"]
+        );
+    }
+
+    #[test]
+    fn error_on_something_that_is_not_an_assignment() {
+        for line in [
+            "[let $gold + 1]",
+            "[let gold = 1]",
+            "[let]",
+            "[let $gold == 1]",
+        ] {
+            assert_eq!(
+                codes(&in_filled_node(line)),
+                ["expected-assignment"],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_on_an_assignment_to_a_nameless_variable() {
+        assert_eq!(
+            codes(&in_filled_node("[let $ = 1]")),
+            ["empty-variable-name", "expected-assignment"]
+        );
+    }
+
+    #[test]
+    fn error_on_text_left_after_the_value() {
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 10 20]")),
+            ["unexpected-text-in-bracket"]
+        );
+    }
+
+    #[test]
+    fn the_value_of_an_assignment_is_checked() {
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 1 +]")),
+            ["expected-expression"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(r#"[let $gold = "a" - 1]"#)),
+            ["invalid-binary-operands"]
+        );
+    }
+
+    #[test]
+    fn a_broken_assignment_costs_exactly_one_line() {
+        let parsed = parse(":= start\n[let $gold = 10\nAlice: ok\n---\n");
+
+        assert_eq!(parsed.nodes[0].body.len(), 1);
+        assert!(matches!(parsed.nodes[0].body[0].kind, StmtKind::Say { .. }));
+    }
+
+    /// Conditions of an `[if]` group, and whether it has an `[else]`.
+    fn branches(src: &str) -> (Vec<String>, bool) {
+        let full = in_node(src);
+        match only_stmt(&full) {
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => (
+                branches
+                    .iter()
+                    .map(|b| full[b.condition.span.start..b.condition.span.end].to_owned())
+                    .collect(),
+                otherwise.is_some(),
+            ),
+            other => panic!("expected an if, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_condition_owns_the_block_indented_under_it() {
+        let stmt = only_stmt(&in_node("[if $gold > 5]\n    Alice: riche"));
+        let StmtKind::If { branches, .. } = stmt else {
+            panic!("expected an if");
+        };
+
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0].body.len(), 1);
+        assert!(matches!(branches[0].body[0].kind, StmtKind::Say { .. }));
+    }
+
+    #[test]
+    fn the_branches_of_a_group_are_kept_in_order() {
+        assert_eq!(
+            branches(
+                "[if $gold > 5]\n    Alice: a\n[elif $gold > 1]\n    Alice: b\n[else]\n    Alice: c"
+            ),
+            (vec!["$gold > 5".to_string(), "$gold > 1".to_string()], true)
+        );
+    }
+
+    #[test]
+    fn a_condition_can_stand_without_an_else() {
+        assert_eq!(
+            branches("[if true]\n    Alice: a"),
+            (vec!["true".to_string()], false)
+        );
+    }
+
+    /// A second `[if]` at the same indentation opens its own group instead of
+    /// joining the one before it.
+    #[test]
+    fn two_conditions_in_a_row_are_two_groups() {
+        let parsed = parse(":= start\n[if true]\n    Alice: a\n[if false]\n    Alice: b\n---\n");
+
+        assert_eq!(parsed.nodes[0].body.len(), 2);
+        assert!(parsed.diagnostics.iter().next().is_none());
+    }
+
+    #[test]
+    fn a_group_can_hold_another_one() {
+        let stmt = only_stmt(&in_node(
+            "[if true]\n    [if false]\n        Alice: a\n    [else]\n        Alice: b",
+        ));
+        let StmtKind::If { branches, .. } = stmt else {
+            panic!("expected an if");
+        };
+
+        assert!(matches!(branches[0].body[0].kind, StmtKind::If { .. }));
+    }
+
+    #[test]
+    fn error_on_a_condition_that_is_never_closed() {
+        assert_eq!(
+            codes(&in_filled_node("[if $gold > 5")),
+            ["unclosed-bracket"]
+        );
+    }
+
+    /// A condition guards a block, so it has to be a `bool`. A variable or a
+    /// call has no type yet, and is left to the VM.
+    #[test]
+    fn error_on_a_condition_that_is_not_a_bool() {
+        assert_eq!(
+            codes(&in_filled_node("[if 1 + 1]\n    Alice: a")),
+            ["condition-not-a-bool"]
+        );
+        assert_eq!(
+            codes(&in_filled_node("[if \"oui\"]\n    Alice: a")),
+            ["condition-not-a-bool"]
+        );
+        // A variable or a call has no type before the dialogue runs.
+        assert!(codes(&in_filled_node("[if $gold + 1 > 2]\n    Alice: a")).is_empty());
+        assert!(codes(&in_filled_node("[if $flag]\n    Alice: a")).is_empty());
+        assert!(codes(&in_filled_node("[if is_open()]\n    Alice: a")).is_empty());
+    }
+
+    #[test]
+    fn error_on_text_left_in_a_branch() {
+        assert_eq!(
+            codes(&in_filled_node("[if true 1]\n    Alice: a")),
+            ["unexpected-text-in-bracket"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else oups]\n    Alice: b"
+            )),
+            ["unexpected-text-in-bracket"]
+        );
+    }
+
+    #[test]
+    fn error_on_a_branch_with_no_condition_before_it() {
+        assert_eq!(
+            codes(&in_filled_node("[elif true]\n    Alice: a")),
+            ["stray-branch"]
+        );
+        assert_eq!(
+            codes(&in_filled_node("[else]\n    Alice: a")),
+            ["stray-branch"]
+        );
+    }
+
+    #[test]
+    fn error_on_a_branch_after_the_else() {
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else]\n    Alice: b\n[elif false]\n    Alice: c"
+            )),
+            ["branch-after-else"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(
+                "[if true]\n    Alice: a\n[else]\n    Alice: b\n[else]\n    Alice: c"
+            )),
+            ["branch-after-else"]
         );
     }
 
     #[test]
     fn a_broken_command_costs_exactly_one_line() {
-        let src = ":= start\n>> play(1..2)\nAlice: ok\n---\n";
+        let src = ":= start\n>> play(1 2)\nAlice: ok\n---\n";
         let parsed = parse(src);
 
         assert_eq!(parsed.nodes[0].body.len(), 1);

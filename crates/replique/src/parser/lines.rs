@@ -36,6 +36,16 @@ pub(super) enum LineKind<'a> {
     Jump(Spanned<&'a str>),
     /// `>> <src>` - a command to execute on the engine.
     Command(Spanned<&'a str>),
+    /// `[let <src>]` - assigns a variable.
+    Let(Spanned<&'a str>),
+    /// `[if <src>]` - opens a conditional block.
+    If(Spanned<&'a str>),
+    /// `[elif <src>]` - another condition of the block before it.
+    Elif(Spanned<&'a str>),
+    /// `[else]` - what the block before it does when no condition holds.
+    /// Keeps its payload, which must be empty, so that `[else oups]` can be
+    /// reported.
+    Else(Spanned<&'a str>),
     /// A line matching no known marker. Holds the whole line so that the error
     /// can be reported later without losing what the author actually wrote.
     Malformed(Spanned<&'a str>),
@@ -115,6 +125,18 @@ pub fn classify(text: &str, offset: usize) -> LineKind<'_> {
     if let Some(rest) = strip_marker(text, ">>", offset) {
         return LineKind::Command(rest);
     }
+    if let Some(rest) = strip_bracket(text, "[let", offset) {
+        return LineKind::Let(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[if", offset) {
+        return LineKind::If(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[elif", offset) {
+        return LineKind::Elif(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[else", offset) {
+        return LineKind::Else(rest);
+    }
     if let Some(marker) = malformed_marker(text, offset) {
         return LineKind::Malformed(marker);
     }
@@ -129,6 +151,17 @@ fn strip_marker<'a>(text: &'a str, marker: &str, offset: usize) -> Option<Spanne
     } else {
         None
     }
+}
+
+/// A bracketed marker, when what follows it cannot continue a word.
+///
+/// Unlike the other markers, a blank is not required: `[let]` is an empty
+/// assignment, reported as such, rather than a line of text that happens to
+/// start with a bracket. `[letter` stays a line of text.
+fn strip_bracket<'a>(text: &'a str, marker: &str, offset: usize) -> Option<Spanned<&'a str>> {
+    let rest = text.strip_prefix(marker)?;
+    (!rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        .then(|| Spanned::from_text(rest, offset + marker.len()))
 }
 
 const MARKER_CHARS: [char; 4] = ['-', '=', ':', '>'];
@@ -348,6 +381,70 @@ mod tests {
             LineKind::Say {
                 speaker: None,
                 text: Spanned::from_text("Salut !", 0)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_detects_an_assignment() {
+        assert_eq!(
+            classify("[let $gold = 10]", 0),
+            LineKind::Let(Spanned::from_text(" $gold = 10]", 4))
+        );
+    }
+
+    /// The closing `]` belongs to the payload: this pass says what a line is,
+    /// and `ast` is what reads and checks what it holds.
+    #[test]
+    fn classify_keeps_an_assignment_the_line_never_closes() {
+        assert_eq!(
+            classify("[let $gold = 10", 0),
+            LineKind::Let(Spanned::from_text(" $gold = 10", 4))
+        );
+    }
+
+    /// `[let` opens an assignment without a blank after it, unlike the other
+    /// markers, but only when what follows cannot continue a word.
+    #[test]
+    fn classify_tells_an_assignment_from_a_word_starting_with_let() {
+        assert_eq!(
+            classify("[let]", 0),
+            LineKind::Let(Spanned::from_text("]", 4))
+        );
+        assert_eq!(
+            classify("[letter", 0),
+            LineKind::Say {
+                speaker: None,
+                text: Spanned::from_text("[letter", 0)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_detects_the_branches_of_a_condition() {
+        assert_eq!(
+            classify("[if $gold > 5]", 0),
+            LineKind::If(Spanned::from_text(" $gold > 5]", 3))
+        );
+        assert_eq!(
+            classify("[elif $gold > 1]", 0),
+            LineKind::Elif(Spanned::from_text(" $gold > 1]", 5))
+        );
+        assert_eq!(
+            classify("[else]", 0),
+            LineKind::Else(Spanned::from_text("]", 5))
+        );
+    }
+
+    /// `[elif` and `[else` share their first two letters with nothing else,
+    /// but `[if` is a prefix of no marker and `[iffy` is a line of text.
+    #[test]
+    fn classify_tells_a_branch_from_a_word_starting_with_it() {
+        assert_eq!(
+            classify("[iffy", 0),
+            LineKind::Say {
+                speaker: None,
+                text: Spanned::from_text("[iffy", 0)
             }
         );
     }
