@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap};
 
 use thiserror::Error;
 
@@ -64,6 +64,10 @@ impl TryFrom<parser::expr::Expr> for Expr {
 pub enum EvalError {
     #[error("Uknown variable {0}")]
     UnknownVariable(String),
+    /// A call in an expression: the host has no way to register a function
+    /// yet, so none of them can be answered.
+    #[error("Uknown function {0}")]
+    UnknownFunction(String),
     #[error("Type mismatch for operator {op}: expected {expected} and received {received}")]
     TypeMismatch {
         op: String,
@@ -77,13 +81,17 @@ pub enum EvalError {
 }
 
 impl Expr {
-    pub(crate) fn eval(&self) -> Result<Value, EvalError> {
+    /// Value of the expression, reading the variables it names from `vars`.
+    pub(crate) fn eval(&self, vars: &HashMap<String, Value>) -> Result<Value, EvalError> {
         match self {
-            Expr::Var(_) => todo!("No variable yet"),
+            Expr::Var(name) => vars
+                .get(name)
+                .cloned()
+                .ok_or_else(|| EvalError::UnknownVariable(name.clone())),
             Expr::Litteral(value) => Ok(value.clone()),
-            Expr::Function { .. } => todo!("No function yet"),
-            Expr::Unary { op, rhs } => unary(*op, rhs.eval()?),
-            Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval()?, rhs.eval()?),
+            Expr::Function { name, .. } => Err(EvalError::UnknownFunction(name.clone())),
+            Expr::Unary { op, rhs } => unary(*op, rhs.eval(vars)?),
+            Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(vars)?, rhs.eval(vars)?),
         }
     }
 }

@@ -34,6 +34,11 @@ pub enum StmtKind {
         name: Spanned<String>,
         args: Vec<Spanned<Expr>>,
     },
+    Set {
+        /// Name of the variable, without its `$`.
+        name: Spanned<String>,
+        value: Spanned<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -346,6 +351,7 @@ impl<'a> Parser<'a> {
                 None
             }
             LineKind::Command(cmd) => self.parse_command(cmd, line.span),
+            LineKind::Let(body) => self.parse_let(body, line.span),
             LineKind::Malformed(marker) => {
                 self.diags.push(
                     line.span,
@@ -409,6 +415,37 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    /// `[let $name = <expr>]`. A malformed assignment is dropped.
+    fn parse_let(&mut self, body: Spanned<&str>, line_span: Span) -> Option<Stmt> {
+        let Some(inner) = body.value.trim_end().strip_suffix(']') else {
+            self.diags.push(line_span, DiagnosticKind::UnclosedLet);
+            return None;
+        };
+        let inner = Spanned::from_text(inner.trim_end(), body.span.start);
+
+        let Some(assignment) = pratt::parse_assignment(&inner, &mut self.diags) else {
+            self.diags
+                .push(line_span, DiagnosticKind::ExpectedAssignment);
+            return None;
+        };
+
+        if let Some(span) = assignment.trailing {
+            self.diags.push(span, DiagnosticKind::TrailingAfterLet);
+            return None;
+        }
+        if let Expr::Error = assignment.value.value {
+            return None;
+        }
+
+        Some(Stmt {
+            kind: StmtKind::Set {
+                name: assignment.name,
+                value: assignment.value,
+            },
+            span: line_span,
+        })
     }
 
     /// Detect duplicate node name and unkonwn jump node
@@ -803,6 +840,94 @@ mod tests {
             codes(&in_filled_node(r#">> play("a" - 1)"#)),
             ["invalid-binary-operands"]
         );
+    }
+
+    /// Name and value of an assignment, the value as the text it covers.
+    fn set(line: &str) -> (String, String) {
+        let src = in_node(line);
+        match only_stmt(&src) {
+            StmtKind::Set { name, value } => {
+                (name.value, src[value.span.start..value.span.end].to_owned())
+            }
+            other => panic!("expected an assignment, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_assignment_takes_a_name_and_an_expression() {
+        assert_eq!(
+            set("[let $gold = 10]"),
+            ("gold".to_string(), "10".to_string())
+        );
+        assert_eq!(
+            set("[let $gold = $gold + 10]"),
+            ("gold".to_string(), "$gold + 10".to_string())
+        );
+    }
+
+    #[test]
+    fn spaces_around_an_assignment_are_ignored() {
+        assert_eq!(
+            set("[let   $gold=10  ]"),
+            ("gold".to_string(), "10".to_string())
+        );
+    }
+
+    #[test]
+    fn error_on_an_assignment_that_is_never_closed() {
+        assert_eq!(codes(&in_filled_node("[let $gold = 10")), ["unclosed-let"]);
+    }
+
+    #[test]
+    fn error_on_something_that_is_not_an_assignment() {
+        for line in [
+            "[let $gold + 1]",
+            "[let gold = 1]",
+            "[let]",
+            "[let $gold == 1]",
+        ] {
+            assert_eq!(
+                codes(&in_filled_node(line)),
+                ["expected-assignment"],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_on_an_assignment_to_a_nameless_variable() {
+        assert_eq!(
+            codes(&in_filled_node("[let $ = 1]")),
+            ["empty-variable-name", "expected-assignment"]
+        );
+    }
+
+    #[test]
+    fn error_on_text_left_after_the_value() {
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 10 20]")),
+            ["trailing-after-let"]
+        );
+    }
+
+    #[test]
+    fn the_value_of_an_assignment_is_checked() {
+        assert_eq!(
+            codes(&in_filled_node("[let $gold = 1 +]")),
+            ["expected-expression"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(r#"[let $gold = "a" - 1]"#)),
+            ["invalid-binary-operands"]
+        );
+    }
+
+    #[test]
+    fn a_broken_assignment_costs_exactly_one_line() {
+        let parsed = parse(":= start\n[let $gold = 10\nAlice: ok\n---\n");
+
+        assert_eq!(parsed.nodes[0].body.len(), 1);
+        assert!(matches!(parsed.nodes[0].body[0].kind, StmtKind::Say { .. }));
     }
 
     #[test]

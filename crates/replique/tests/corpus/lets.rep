@@ -1,0 +1,11 @@
+:= start
+[let $gold = 10]
+[let $name = "Alice"]
+Alice: J'ai de l'or.
+-> Dépenser
+    [let $gold = $gold - 5]
+    Alice: Il m'en reste.
+-> Garder
+    [let $greedy = true]
+>> show($gold)
+---

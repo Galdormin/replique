@@ -36,6 +36,8 @@
 //! go wrong is a [`VmError`], including the step limit that catches
 //! nodes jumping to each other forever.
 
+use std::collections::HashMap;
+
 use thiserror::Error;
 
 use crate::dialogue::{
@@ -190,6 +192,7 @@ enum VmState {
 pub struct DialogueVm {
     dialogue: Option<Dialogue>,
     state: VmState,
+    vars: HashMap<String, Value>,
 }
 
 impl DialogueVm {
@@ -246,18 +249,27 @@ impl DialogueVm {
                     });
                 }
                 StepKind::Command { command, next } => {
+                    // Evaluated before the state moves: an argument that does
+                    // not evaluate must leave the VM where it was.
+                    let args = command
+                        .args
+                        .into_iter()
+                        .map(|e| self.eval(e))
+                        .collect::<Result<_, _>>()?;
+
                     self.state = VmState::Suspended {
                         cursor,
                         at: SuspendedAt::Command { next },
                     };
                     return Ok(DialogueEvent::Command {
                         name: command.name,
-                        args: command
-                            .args
-                            .into_iter()
-                            .map(|e| self.eval(e))
-                            .collect::<Result<_, _>>()?,
+                        args,
                     });
+                }
+                StepKind::Set { name, value, next } => {
+                    let value = self.eval(value)?;
+                    self.vars.insert(name, value);
+                    cursor.step = next;
                 }
                 StepKind::Choice { choices } => {
                     self.state = VmState::Suspended {
@@ -311,7 +323,7 @@ impl DialogueVm {
 
     /// Eval an Expr
     fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
-        expr.eval()
+        expr.eval(&self.vars)
     }
 }
 
@@ -320,6 +332,11 @@ mod tests {
     use super::*;
     use crate::dialogue::builder::DialogueNodeBuilder;
     use crate::dialogue::{ChoiceDef, Command, TextLine, expr::Expr};
+    use crate::parser::expr::BinaryOp;
+
+    fn lit(value: i64) -> Expr {
+        Expr::Litteral(Value::Int(value))
+    }
 
     fn line(speaker: Option<&str>, text: &str, next: StepId) -> StepKind {
         StepKind::Say {
@@ -584,6 +601,89 @@ mod tests {
         let err = expect_err(vm.resume(ResumeEvent::Select(0)));
 
         assert!(matches!(err, VmError::WrongResumeEvent));
+    }
+
+    /// A node that assigns `$gold`, then hands it to a command, so the value
+    /// the host receives is the one the assignment computed.
+    fn set_dialogue(value: Expr) -> Dialogue {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let cmd = b.push(StepKind::Command {
+            command: Command {
+                name: "show".into(),
+                args: vec![Expr::Var("gold".into())],
+            },
+            next: end,
+        });
+        let set = b.push(StepKind::Set {
+            name: "gold".into(),
+            value,
+            next: cmd,
+        });
+        Dialogue::new(vec![b.build(NodeName::new("start"), set).unwrap()])
+    }
+
+    fn expect_command(event: DialogueEvent) -> (String, Vec<Value>) {
+        match event {
+            DialogueEvent::Command { name, args } => (name, args),
+            _ => panic!("expected a Command event"),
+        }
+    }
+
+    #[test]
+    fn an_assignment_is_invisible_and_gives_a_variable_its_value() {
+        let mut vm = DialogueVm::default();
+
+        let (name, args) = expect_command(vm.start(set_dialogue(lit(10)), "start").unwrap());
+
+        assert_eq!(name, "show");
+        assert_eq!(args, [Value::Int(10)]);
+    }
+
+    #[test]
+    fn an_assignment_reads_the_variables_written_before_it() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let cmd = b.push(StepKind::Command {
+            command: Command {
+                name: "show".into(),
+                args: vec![Expr::Var("gold".into())],
+            },
+            next: end,
+        });
+        let second = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: Expr::Binary {
+                op: BinaryOp::Add,
+                lhs: Box::new(Expr::Var("gold".into())),
+                rhs: Box::new(lit(5)),
+            },
+            next: cmd,
+        });
+        let first = b.push(StepKind::Set {
+            name: "gold".into(),
+            value: lit(10),
+            next: second,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), first).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        let (_, args) = expect_command(vm.start(dialogue, "start").unwrap());
+
+        assert_eq!(args, [Value::Int(15)]);
+    }
+
+    /// A variable nobody wrote is an error, not a default value.
+    #[test]
+    fn error_on_a_variable_that_was_never_assigned() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(set_dialogue(Expr::Var("unknown".into())), "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::UnknownVariable(name)) if name == "unknown"
+        ));
     }
 
     #[test]

@@ -18,6 +18,43 @@ pub(crate) fn parse(src: &Spanned<&str>, diags: &mut Diagnostics) -> Spanned<Exp
     expr
 }
 
+/// What `$name = <expression>` holds, once read.
+pub(crate) struct Assignment {
+    /// Name of the variable, without its `$`. Its span covers the sigil.
+    pub name: Spanned<String>,
+    pub value: Spanned<Expr>,
+    /// What the expression did not read, from the first token left to the end
+    /// of the source. Reported by the caller, which knows what statement it
+    /// is reading.
+    pub trailing: Option<Span>,
+}
+
+/// Reads `$name = <expression>` out of `src`.
+pub(crate) fn parse_assignment(src: &Spanned<&str>, diags: &mut Diagnostics) -> Option<Assignment> {
+    let mut parser = ExprParser::new(src, diags);
+
+    let name = match parser.peek()? {
+        Spanned {
+            value: Token::Var(name),
+            span,
+        } => Spanned::new(name.clone(), *span),
+        _ => return None,
+    };
+    parser.bump();
+    parser.eat_if(|tok| matches!(tok, Token::Assign))?;
+
+    let value = parser.expr(0);
+    value.value.is_type_valid(parser.diags);
+
+    Some(Assignment {
+        name,
+        value,
+        trailing: parser
+            .peek_span()
+            .map(|span| Span::new(span.start, src.span.end)),
+    })
+}
+
 pub struct ExprParser<'a> {
     lexed: Lexed,
     pos: usize,

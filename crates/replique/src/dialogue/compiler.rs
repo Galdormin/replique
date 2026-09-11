@@ -120,6 +120,11 @@ fn build_block(
                 },
                 next: current_id,
             }),
+            StmtKind::Set { name, value } => builder.push(StepKind::Set {
+                name: name.into_inner(),
+                value: value.value.try_into().expect("checked by the parser"),
+                next: current_id,
+            }),
             // `=> END` is the one jump with no node behind it.
             StmtKind::Jump(node_name) if node_name.value == END_NODE_NAME => {
                 builder.push(StepKind::End)

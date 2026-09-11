@@ -165,6 +165,13 @@ pub(crate) enum StepKind {
     Jump(NodeName),
     /// A command for the host, then `next`.
     Command { command: Command, next: StepId },
+    /// Give a variable its value, then `next`. Invisible to the host: the VM
+    /// evaluates and stores it on its own.
+    Set {
+        name: String,
+        value: Expr,
+        next: StepId,
+    },
     /// The dialogue is over.
     End,
 }

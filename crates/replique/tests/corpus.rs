@@ -84,6 +84,15 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     at(src, stmt.span)
                 );
             }
+            StmtKind::Set { name, value } => {
+                let _ = writeln!(
+                    out,
+                    "{pad}set {} {:?} {}",
+                    name.value,
+                    &src.raw[value.span.start..value.span.end],
+                    at(src, stmt.span)
+                );
+            }
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
                 for Choice { text, body, span } in choices {
@@ -143,6 +152,7 @@ corpus!(
     forward_jump,
     jump_to_end,
     commands,
+    lets,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -158,4 +168,5 @@ corpus!(
     unknown_jump,
     jump_in_choice,
     bad_commands,
+    bad_lets,
 );

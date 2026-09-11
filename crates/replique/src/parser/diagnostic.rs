@@ -138,6 +138,12 @@ pub enum DiagnosticKind {
         lhs: String,
         rhs: String,
     },
+    /// `[let` never closed.
+    UnclosedLet,
+    /// `[let` followed by something that does not assign: `[let $gold + 1]`.
+    ExpectedAssignment,
+    /// Text left after the value: `[let $gold = 1 2]`.
+    TrailingAfterLet,
 }
 
 impl DiagnosticKind {
@@ -171,7 +177,10 @@ impl DiagnosticKind {
             | UnclosedParenthesis
             | ExpectedArgSeparator
             | InvalidUnaryOperand { .. }
-            | InvalidBinaryOperands { .. } => Severity::Error,
+            | InvalidBinaryOperands { .. }
+            | UnclosedLet
+            | ExpectedAssignment
+            | TrailingAfterLet => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -219,6 +228,9 @@ impl DiagnosticKind {
             ExpectedArgSeparator => "expected-arg-separator",
             InvalidUnaryOperand { .. } => "invalid-unary-operand",
             InvalidBinaryOperands { .. } => "invalid-binary-operands",
+            UnclosedLet => "unclosed-let",
+            ExpectedAssignment => "expected-assignment",
+            TrailingAfterLet => "trailing-after-let",
         }
     }
 }
@@ -300,6 +312,13 @@ impl fmt::Display for DiagnosticKind {
             InvalidBinaryOperands { op, lhs, rhs } => write!(
                 f,
                 "operator `{op}` cannot be applied to `{lhs}` and `{rhs}`"
+            ),
+            UnclosedLet => {
+                f.write_str("`[let` is never closed, expected `]` at the end of the line")
+            }
+            ExpectedAssignment => f.write_str("expected `$name = <expression>` after `[let`"),
+            TrailingAfterLet => f.write_str(
+                "unexpected text after the value, expected nothing after the expression",
             ),
         }
     }

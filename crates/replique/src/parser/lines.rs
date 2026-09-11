@@ -36,6 +36,8 @@ pub(super) enum LineKind<'a> {
     Jump(Spanned<&'a str>),
     /// `>> <src>` - a command to execute on the engine.
     Command(Spanned<&'a str>),
+    /// `[let <src>]` - assigns a variable.
+    Let(Spanned<&'a str>),
     /// A line matching no known marker. Holds the whole line so that the error
     /// can be reported later without losing what the author actually wrote.
     Malformed(Spanned<&'a str>),
@@ -115,6 +117,9 @@ pub fn classify(text: &str, offset: usize) -> LineKind<'_> {
     if let Some(rest) = strip_marker(text, ">>", offset) {
         return LineKind::Command(rest);
     }
+    if let Some(rest) = strip_let(text, offset) {
+        return LineKind::Let(rest);
+    }
     if let Some(marker) = malformed_marker(text, offset) {
         return LineKind::Malformed(marker);
     }
@@ -129,6 +134,19 @@ fn strip_marker<'a>(text: &'a str, marker: &str, offset: usize) -> Option<Spanne
     } else {
         None
     }
+}
+
+/// `[let`, when what follows it cannot continue a word.
+///
+/// Unlike the other markers, a blank is not required: `[let]` is an empty
+/// assignment, reported as such, rather than a line of text that happens to
+/// start with a bracket. `[letter` stays a line of text.
+fn strip_let(text: &str, offset: usize) -> Option<Spanned<&str>> {
+    const MARKER: &str = "[let";
+
+    let rest = text.strip_prefix(MARKER)?;
+    (!rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        .then(|| Spanned::from_text(rest, offset + MARKER.len()))
 }
 
 const MARKER_CHARS: [char; 4] = ['-', '=', ':', '>'];
@@ -348,6 +366,41 @@ mod tests {
             LineKind::Say {
                 speaker: None,
                 text: Spanned::from_text("Salut !", 0)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_detects_an_assignment() {
+        assert_eq!(
+            classify("[let $gold = 10]", 0),
+            LineKind::Let(Spanned::from_text(" $gold = 10]", 4))
+        );
+    }
+
+    /// The closing `]` belongs to the payload: this pass says what a line is,
+    /// and `ast` is what reads and checks what it holds.
+    #[test]
+    fn classify_keeps_an_assignment_the_line_never_closes() {
+        assert_eq!(
+            classify("[let $gold = 10", 0),
+            LineKind::Let(Spanned::from_text(" $gold = 10", 4))
+        );
+    }
+
+    /// `[let` opens an assignment without a blank after it, unlike the other
+    /// markers, but only when what follows cannot continue a word.
+    #[test]
+    fn classify_tells_an_assignment_from_a_word_starting_with_let() {
+        assert_eq!(
+            classify("[let]", 0),
+            LineKind::Let(Spanned::from_text("]", 4))
+        );
+        assert_eq!(
+            classify("[letter", 0),
+            LineKind::Say {
+                speaker: None,
+                text: Spanned::from_text("[letter", 0)
             }
         );
     }

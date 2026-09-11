@@ -124,6 +124,7 @@ fn has_dangling_target(kind: &StepKind, max_id: u32) -> Option<StepId> {
     let targets = match kind {
         StepKind::Say { next, .. } => vec![next],
         StepKind::Command { next, .. } => vec![next],
+        StepKind::Set { next, .. } => vec![next],
         StepKind::Choice { choices } => choices.iter().map(|c| &c.target).collect(),
         StepKind::Jump(_) | StepKind::End => vec![],
     };
