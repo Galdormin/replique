@@ -11,6 +11,11 @@ languages = ["languages/replique"]
 kind = "Rust"
 version = "0.7.0"
 
+[grammars.replique]
+repository = "https://github.com/Galdormin/replique"
+rev = "16eef7316e1f649dca03c352f8e8c4d4130ea9c4"
+path = "editors/tree-sitter-replique"
+
 [language_servers.replique-lsp]
 name = "Replique Language Server"
 languages = ["Replique"]
