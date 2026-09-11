@@ -1,5 +1,3 @@
-//!
-
 use replique::parser::{
     LineIndex, Span,
     ast::NodeDecl,
