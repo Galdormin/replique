@@ -1,0 +1,14 @@
+[package]
+name = "zed-replique"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detached from the workspace: this crate is built for wasm32-wasip2 by Zed.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7"

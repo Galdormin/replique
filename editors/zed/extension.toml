@@ -1,0 +1,16 @@
+id = "replique"
+name = "Replique"
+version = "0.1.0"
+schema_version = 1
+description = "Live diagnostics for Replique dialogue files"
+authors = ["Théo Plénet"]
+repository = "https://github.com/Galdormin/replique"
+languages = ["languages/replique"]
+
+[lib]
+kind = "Rust"
+version = "0.7.0"
+
+[language_servers.chatter-lsp]
+name = "Replique Language Server"
+languages = ["Replique"]
