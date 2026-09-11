@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use dashmap::DashMap;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
@@ -5,12 +7,15 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use crate::document::Document;
 
+mod completion;
 mod document;
 
 #[derive(Debug)]
 struct RepliqueLanguageServer {
     client: Client,
     documents: DashMap<Uri, Document>,
+    /// Whether the client takes snippets, as announced at `initialize`.
+    snippets: AtomicBool,
 }
 
 impl RepliqueLanguageServer {
@@ -18,6 +23,7 @@ impl RepliqueLanguageServer {
         Self {
             client,
             documents: DashMap::new(),
+            snippets: AtomicBool::new(false),
         }
     }
 
@@ -31,7 +37,16 @@ impl RepliqueLanguageServer {
 }
 
 impl LanguageServer for RepliqueLanguageServer {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let snippets = params
+            .capabilities
+            .text_document
+            .and_then(|caps| caps.completion)
+            .and_then(|caps| caps.completion_item)
+            .and_then(|item| item.snippet_support)
+            .unwrap_or(false);
+        self.snippets.store(snippets, Ordering::Relaxed);
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
@@ -41,6 +56,12 @@ impl LanguageServer for RepliqueLanguageServer {
                         ..Default::default()
                     },
                 )),
+                completion_provider: Some(CompletionOptions {
+                    // Without these, the client only asks once a word is
+                    // started: `=>` and `>>` would never offer anything.
+                    trigger_characters: Some(vec![">".into(), "$".into()]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             ..Default::default()
@@ -63,15 +84,25 @@ impl LanguageServer for RepliqueLanguageServer {
     }
 
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
-        let Some(change) = params.content_changes.pop() else {
-            return;
-        };
-
-        self.refresh(params.text_document.uri, change.text).await
+        if let Some(change) = params.content_changes.pop() {
+            self.refresh(params.text_document.uri, change.text).await;
+        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.documents.remove(&params.text_document.uri);
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let position = params.text_document_position;
+        let Some(doc) = self.documents.get(&position.text_document.uri) else {
+            return Ok(None);
+        };
+
+        Ok(Some(CompletionResponse::Array(doc.completions(
+            position.position,
+            self.snippets.load(Ordering::Relaxed),
+        ))))
     }
 }
 

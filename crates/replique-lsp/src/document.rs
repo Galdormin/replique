@@ -6,6 +6,8 @@ use replique::parser::{
 };
 use tower_lsp_server::ls_types;
 
+use crate::completion::{self, Completion};
+
 #[derive(Debug)]
 pub struct Document {
     pub uri: ls_types::Uri,
@@ -14,12 +16,14 @@ pub struct Document {
     #[allow(dead_code)]
     pub nodes: Vec<NodeDecl>,
     pub diagnostics: Diagnostics,
+    pub completion: Completion,
 }
 
 impl Document {
     pub fn new(uri: ls_types::Uri, source: String) -> Self {
         let line_index = LineIndex::new(&source);
         let parsed = parse(&source);
+        let completion = Completion::new(&parsed.nodes);
 
         Self {
             uri,
@@ -27,6 +31,7 @@ impl Document {
             line_index,
             nodes: parsed.nodes,
             diagnostics: parsed.diagnostics,
+            completion,
         }
     }
 
@@ -60,6 +65,40 @@ impl Document {
             related_information: Some(related),
             ..Default::default()
         }
+    }
+
+    pub fn completions(
+        &self,
+        position: ls_types::Position,
+        snippets: bool,
+    ) -> Vec<ls_types::CompletionItem> {
+        self.line_prefix(position)
+            .and_then(completion::context)
+            .map(|context| self.completion.items(context, snippets))
+            .unwrap_or_default()
+    }
+
+    /// Text of the line before `position`, indentation included.
+    fn line_prefix(&self, position: ls_types::Position) -> Option<&str> {
+        let line = position.line as usize;
+        if line >= self.line_index.line_count() {
+            return None;
+        }
+
+        let text = self.line_index.line_text(&self.source, line);
+
+        // The column is in UTF-16 code units, the slice is in bytes.
+        let mut utf16 = 0usize;
+        let end = text
+            .char_indices()
+            .find(|(_, c)| {
+                let reached = utf16 >= position.character as usize;
+                utf16 += c.len_utf16();
+                reached
+            })
+            .map_or(text.len(), |(offset, _)| offset);
+
+        Some(&text[..end])
     }
 
     /// Convert an offset on byte source to a [`ls_types::Position`] in UTF-16
