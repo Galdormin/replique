@@ -1,0 +1,29 @@
+---
+source: crates/replique/tests/corpus.rs
+assertion_line: 168
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "un" @3:1 "Alice: un"
+  line Alice "deux" @5:1 "Alice: deux"
+  line Alice "trois" @7:1 "Alice: trois"
+  line Alice "quatre" @9:1 "Alice: quatre"
+  line Alice "cinq" @11:1 "Alice: cinq"
+  line Alice "six" @13:1 "Alice: six"
+  set g "{pv: 1, pv: 2}" @14:1 "[let $g = {pv: 1, pv: 2}]"
+  line Alice "sept" @15:1 "Alice: sept"
+  line Alice "huit" @17:1 "Alice: huit"
+  line Alice "neuf" @19:1 "Alice: neuf"
+
+== diagnostics ==
+error unclosed-dict @2:11 "{"
+error expected-colon @4:15 "1"
+error expected-key @6:12 "1"
+error expected-expression @8:16 "}"
+error expected-arg-separator @10:18 "force"
+error expected-key @12:18 "}"
+warning duplicate-key @14:19 "pv"
+  label first given here @14:12 "pv"
+error attribute-on-non-variable @16:11 "{pv: 1}.pv"
+error attribute-on-non-variable @18:11 "\"texte\".pv"

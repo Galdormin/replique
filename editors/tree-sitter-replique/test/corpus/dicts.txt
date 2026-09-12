@@ -1,0 +1,83 @@
+================================================================================
+Dict literal
+================================================================================
+
+[let $player = {name: "Alice", stats: {hp: 10}}]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (variable)
+    (dict
+      (dict_entry
+        (dict_key
+          (identifier))
+        (string))
+      (dict_entry
+        (dict_key
+          (identifier))
+        (dict
+          (dict_entry
+            (dict_key
+              (identifier))
+            (number)))))))
+
+================================================================================
+Empty dict
+================================================================================
+
+[let $empty = {}]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (variable)
+    (dict)))
+
+================================================================================
+Attribute read
+================================================================================
+
+[if $player.stats.hp > 5]
+>> show(roll().value)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (if_statement
+    (binary_expression
+      (attribute_expression
+        (variable)
+        (attribute)
+        (attribute))
+      (number)))
+  (command
+    (call
+      (function_name
+        (identifier))
+      (attribute_expression
+        (call
+          (function_name
+            (identifier)))
+        (attribute)))))
+
+================================================================================
+Attribute assignment
+================================================================================
+
+[let $player.stats.hp = -$player.stats.hp]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (let_statement
+    (variable)
+    (attribute)
+    (attribute)
+    (unary_expression
+      (attribute_expression
+        (variable)
+        (attribute)
+        (attribute)))))

@@ -1,0 +1,19 @@
+---
+source: crates/replique/tests/run.rs
+assertion_line: 115
+expression: "trace(src, \"start\")"
+---
+  $joueur = {nom: "Alice", pv: 10, stats: {agilite: 5, force: 3}}
+  $pv_max = 10
+  $vide = {}
+say Alice "Voici ma fiche."
+say Alice "Je suis au maximum."
+say Alice "Et je suis forte."
+  $jumelle = {nom: "Alice", pv: 10, stats: {agilite: 5, force: 3}}
+say Alice "Nous sommes identiques."
+  $joueur = {nom: "Alice", pv: 6, stats: {agilite: 9, force: 9}}
+say Alice "Me voilà changée."
+command montrer(6, 9)
+command montrer("Alice", 9)
+command montrer({source: "litteral", valeur: 11})
+end

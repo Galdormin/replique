@@ -271,9 +271,18 @@ impl DialogueVm {
                         args,
                     });
                 }
-                StepKind::Set { name, value, next } => {
+                StepKind::Set {
+                    name,
+                    attrs,
+                    value,
+                    next,
+                } => {
                     let value = self.eval(value)?;
-                    self.vars.insert(name, value);
+                    if attrs.is_empty() {
+                        self.vars.insert(name, value);
+                    } else {
+                        self.set_attr(&name, &attrs, value)?;
+                    }
                     cursor.step = next;
                 }
                 StepKind::Branch {
@@ -342,6 +351,36 @@ impl DialogueVm {
     /// Eval an Expr
     fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
         expr.eval(&self.vars)
+    }
+
+    /// Walks `attrs` down the dicts held by the variable `name`, and writes
+    /// `value` where the path ends.
+    ///
+    /// Nothing is created along the way: a variable that does not exist, or a
+    /// key a dict does not hold, is an error rather than a new entry, so that
+    /// a mistyped name is reported instead of quietly making a field up.
+    fn set_attr(&mut self, name: &str, attrs: &[String], value: Value) -> Result<(), EvalError> {
+        let mut target = self
+            .vars
+            .get_mut(name)
+            .ok_or_else(|| EvalError::UnknownVariable(name.to_owned()))?;
+
+        for attr in attrs {
+            target = match target {
+                Value::Dict(map) => map
+                    .get_mut(attr)
+                    .ok_or_else(|| EvalError::DictHasNoAttr(attr.clone()))?,
+                other => {
+                    return Err(EvalError::AttrExpectedDict {
+                        name: attr.clone(),
+                        received: other.vtype().to_string(),
+                    });
+                }
+            };
+        }
+
+        *target = value;
+        Ok(())
     }
 }
 
@@ -635,6 +674,7 @@ mod tests {
         });
         let set = b.push(StepKind::Set {
             name: "gold".into(),
+            attrs: vec![],
             value,
             next: cmd,
         });
@@ -671,6 +711,7 @@ mod tests {
         });
         let second = b.push(StepKind::Set {
             name: "gold".into(),
+            attrs: vec![],
             value: Expr::Binary {
                 op: BinaryOp::Add,
                 lhs: Box::new(Expr::Var("gold".into())),
@@ -680,6 +721,7 @@ mod tests {
         });
         let first = b.push(StepKind::Set {
             name: "gold".into(),
+            attrs: vec![],
             value: lit(10),
             next: second,
         });
@@ -689,6 +731,115 @@ mod tests {
         let (_, args) = expect_command(vm.start(dialogue, "start").unwrap());
 
         assert_eq!(args, [Value::Int(15)]);
+    }
+
+    /// `[let $player = {...}]` then `[let $player.<attr> = <value>]`, as the
+    /// compiler lays it out: two `Set` steps in a row.
+    fn set_attr_dialogue(attrs: &[&str], value: Expr) -> Dialogue {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let write = b.push(StepKind::Set {
+            name: "player".into(),
+            attrs: attrs.iter().map(|a| (*a).to_string()).collect(),
+            value,
+            next: end,
+        });
+        let init = b.push(StepKind::Set {
+            name: "player".into(),
+            attrs: vec![],
+            value: Expr::LitteralDict(HashMap::from([(
+                "stats".to_owned(),
+                Expr::LitteralDict(HashMap::from([("hp".to_owned(), lit(10))])),
+            )])),
+            next: write,
+        });
+        Dialogue::new(vec![b.build(NodeName::new("start"), init).unwrap()])
+    }
+
+    fn dict(entries: &[(&str, Value)]) -> Value {
+        Value::Dict(
+            entries
+                .iter()
+                .map(|(key, val)| ((*key).to_owned(), val.clone()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn an_assignment_writes_through_a_path_of_attributes() {
+        let mut vm = DialogueVm::default();
+
+        vm.start(set_attr_dialogue(&["stats", "hp"], lit(3)), "start")
+            .unwrap();
+
+        assert_eq!(
+            vm.vars().get("player"),
+            Some(&dict(&[("stats", dict(&[("hp", Value::Int(3))]))]))
+        );
+    }
+
+    /// The attr names what to replace, so writing over a dict is allowed.
+    #[test]
+    fn an_assignment_can_replace_a_whole_dict() {
+        let mut vm = DialogueVm::default();
+
+        vm.start(set_attr_dialogue(&["stats"], lit(0)), "start")
+            .unwrap();
+
+        assert_eq!(
+            vm.vars().get("player"),
+            Some(&dict(&[("stats", Value::Int(0))]))
+        );
+    }
+
+    /// Nothing is created along the way: a key the dict does not hold is a
+    /// mistyped name, not a new entry.
+    #[test]
+    fn error_on_an_attribute_the_dict_does_not_hold() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(set_attr_dialogue(&["stats", "mp"], lit(3)), "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::DictHasNoAttr(name)) if name == "mp"
+        ));
+    }
+
+    #[test]
+    fn error_on_an_attribute_read_on_something_that_is_not_a_dict() {
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(
+            set_attr_dialogue(&["stats", "hp", "deeper"], lit(3)),
+            "start",
+        ));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::AttrExpectedDict { name, .. }) if name == "deeper"
+        ));
+    }
+
+    #[test]
+    fn error_on_an_attribute_written_on_a_variable_that_does_not_exist() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let write = b.push(StepKind::Set {
+            name: "unknown".into(),
+            attrs: vec!["hp".to_owned()],
+            value: lit(3),
+            next: end,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), write).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(dialogue, "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::UnknownVariable(name)) if name == "unknown"
+        ));
     }
 
     /// A variable nobody wrote is an error, not a default value.
@@ -747,6 +898,7 @@ mod tests {
         });
         let set = b.push(StepKind::Set {
             name: "gold".into(),
+            attrs: vec![],
             value: lit(10),
             next: branch,
         });

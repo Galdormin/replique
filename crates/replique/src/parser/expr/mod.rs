@@ -15,6 +15,7 @@ pub(crate) enum ValueType {
     Float,
     Int,
     String,
+    Dict,
     /// Used for [Expr::Var] and [Expr::Function] which are unknown at compilation
     Unknown,
 }
@@ -52,6 +53,7 @@ impl fmt::Display for ValueType {
             Self::Float => "float",
             Self::Int => "int",
             Self::String => "string",
+            Self::Dict => "dict",
             Self::Unknown => "unknown",
         })
     }
@@ -66,9 +68,15 @@ pub enum Expr {
         name: Spanned<String>,
         args: Vec<Spanned<Expr>>,
     },
+    Attr {
+        base: Box<Spanned<Expr>>,
+        attrs: Vec<Spanned<String>>,
+    },
     Litteral {
         value: Value,
     },
+    /// To represent `{name: Alan, hp: $base + 2}` we need HashMap of [`Expr`]
+    LitteralDict(Vec<(Spanned<String>, Spanned<Expr>)>),
     Unary {
         op: Spanned<UnaryOp>,
         rhs: Box<Spanned<Expr>>,
@@ -87,6 +95,14 @@ impl Expr {
     pub(crate) fn is_type_valid(&self, diags: &mut Diagnostics) -> bool {
         match self {
             Expr::Var { .. } | Expr::Litteral { .. } | Expr::Error => true,
+            Expr::Attr { base, .. } => base.value.is_type_valid(diags),
+            Expr::LitteralDict(attrs) => {
+                let mut valid = true;
+                for (_, attr) in attrs {
+                    valid &= attr.value.is_type_valid(diags);
+                }
+                valid
+            }
             Expr::Function { args, .. } => {
                 // Every argument is checked, and not just up to the first
                 // faulty one, so a call is reported in a single pass.
@@ -163,8 +179,11 @@ impl Expr {
     /// depends on what the host puts in a variable or gives back from a call.
     pub(crate) fn value_type(&self) -> Option<ValueType> {
         match self {
-            Expr::Var { .. } | Expr::Function { .. } | Expr::Error => Some(ValueType::Unknown),
+            Expr::Var { .. } | Expr::Function { .. } | Expr::Attr { .. } | Expr::Error => {
+                Some(ValueType::Unknown)
+            }
             Expr::Litteral { value } => Some(ValueType::type_of(value)),
+            Expr::LitteralDict(_) => Some(ValueType::Dict),
             Expr::Unary { op, rhs } => op.value.type_of(&rhs.value.value_type()?),
             Expr::Binary { op, lhs, rhs } => op
                 .value

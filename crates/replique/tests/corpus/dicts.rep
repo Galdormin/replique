@@ -1,0 +1,24 @@
+:= start
+[let $joueur = {nom: "Alice", pv: 10, stats: {force: 3, agilite: 5}}]
+[let $vide = {}]
+[let $pv_max = 10]
+Alice: Voici ma fiche.
+[if $joueur.pv >= $pv_max]
+    Alice: Je suis au maximum.
+[else]
+    Alice: Je suis blessée.
+[if $joueur.stats.force > 2]
+    Alice: Et je suis forte.
+[let $jumelle = {nom: "Alice", pv: 10, stats: {force: 3, agilite: 5}}]
+[if $joueur == $jumelle]
+    Alice: Nous sommes identiques.
+[if $vide == $joueur]
+    Alice: Ceci ne devrait pas s'afficher.
+[let $joueur.pv = $joueur.pv - 4]
+[let $joueur.stats.force = $joueur.stats.force + 1]
+[let $joueur.stats = {force: 9, agilite: 9}]
+Alice: Me voilà changée.
+>> montrer($joueur.pv, $joueur.stats.force)
+>> montrer($joueur.nom, $joueur.stats.agilite)
+>> montrer({source: "litteral", valeur: $pv_max + 1})
+---

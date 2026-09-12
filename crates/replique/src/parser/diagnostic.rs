@@ -125,7 +125,7 @@ pub enum DiagnosticKind {
     /// `(` never closed inside an expression.
     UnclosedParenthesis,
     /// Two arguments of a function with no `,` between them: `max(1 2)`.
-    ExpectedArgSeparator,
+    ExpectedSeparator,
     /// An operator applied to a type it does not take: `not 1`.
     InvalidUnaryOperand {
         op: String,
@@ -150,6 +150,16 @@ pub enum DiagnosticKind {
     StrayBranch(String),
     /// `[elif]` or a second `[else]` after an `[else]`.
     BranchAfterElse(String),
+    /// `.attr` on non Var or Func
+    AttributeOnNonVariable,
+    /// Dict is not closed by `}`
+    UnclosedDict,
+    /// A dict with colon between key and value `{name "Léon"}`
+    ExpectedColon,
+    /// A dict with no valid key `{: "Léon"}`
+    ExpectedKey,
+    /// A dict naming the same key twice `{hp: 1, hp: 2}`
+    DuplicateKey(String),
 }
 
 impl DiagnosticKind {
@@ -181,7 +191,7 @@ impl DiagnosticKind {
             | UnknownExpressionCharacter(_)
             | ExpectedExpression
             | UnclosedParenthesis
-            | ExpectedArgSeparator
+            | ExpectedSeparator
             | InvalidUnaryOperand { .. }
             | InvalidBinaryOperands { .. }
             | UnclosedBracket(_)
@@ -189,14 +199,19 @@ impl DiagnosticKind {
             | UnexpectedTextInBracket
             | ConditionIsNotABool(_)
             | StrayBranch(_)
-            | BranchAfterElse(_) => Severity::Error,
+            | BranchAfterElse(_)
+            | AttributeOnNonVariable
+            | UnclosedDict
+            | ExpectedColon
+            | ExpectedKey => Severity::Error,
 
             EmptyNode
             | SingleChoice
             | UnexpectedIndentation
             | IndentedNodeStart
             | IndentedNodeEnd
-            | TrailingAfterCommand => Severity::Warning,
+            | TrailingAfterCommand
+            | DuplicateKey(_) => Severity::Warning,
         }
     }
 
@@ -234,7 +249,7 @@ impl DiagnosticKind {
             UnknownExpressionCharacter(_) => "unknown-expression-character",
             ExpectedExpression => "expected-expression",
             UnclosedParenthesis => "unclosed-parenthesis",
-            ExpectedArgSeparator => "expected-arg-separator",
+            ExpectedSeparator => "expected-arg-separator",
             InvalidUnaryOperand { .. } => "invalid-unary-operand",
             InvalidBinaryOperands { .. } => "invalid-binary-operands",
             UnclosedBracket(_) => "unclosed-bracket",
@@ -243,6 +258,11 @@ impl DiagnosticKind {
             ConditionIsNotABool(_) => "condition-not-a-bool",
             StrayBranch(_) => "stray-branch",
             BranchAfterElse(_) => "branch-after-else",
+            AttributeOnNonVariable => "attribute-on-non-variable",
+            UnclosedDict => "unclosed-dict",
+            ExpectedColon => "expected-colon",
+            ExpectedKey => "expected-key",
+            DuplicateKey(_) => "duplicate-key",
         }
     }
 }
@@ -312,7 +332,7 @@ impl fmt::Display for DiagnosticKind {
             }
             ExpectedExpression => f.write_str("expected an expression"),
             UnclosedParenthesis => f.write_str("`(` is never closed, expected `)`"),
-            ExpectedArgSeparator => f.write_str("expected `,` or `)` after this function argument"),
+            ExpectedSeparator => f.write_str("expected `,` or `)` after this function argument"),
             InvalidUnaryOperand {
                 op,
                 expected,
@@ -339,6 +359,14 @@ impl fmt::Display for DiagnosticKind {
                 write!(f, "`{marker}` found while no `[if]` is open")
             }
             BranchAfterElse(marker) => write!(f, "`{marker}` found after `[else]`"),
+            AttributeOnNonVariable => f.write_str("found `.attr` on non variable or function"),
+            UnclosedDict => f.write_str("dict is never closed, expected `} at the end`"),
+            ExpectedColon => f.write_str("expected `:` after a key in dict definition"),
+            ExpectedKey => f.write_str("expected a str as a key in dict definition"),
+            DuplicateKey(key) => write!(
+                f,
+                "key `{key}` is given more than once, only the last value is kept"
+            ),
         }
     }
 }

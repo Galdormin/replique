@@ -168,6 +168,7 @@ pub(crate) enum StepKind {
     /// Give a variable its value, then `next`.
     Set {
         name: String,
+        attrs: Vec<String>,
         value: Expr,
         next: StepId,
     },
@@ -206,6 +207,7 @@ pub enum ValueType {
     Int,
     Float,
     String,
+    Dict,
 }
 
 impl ValueType {
@@ -215,6 +217,7 @@ impl ValueType {
             Value::Int(_) => Self::Int,
             Value::Float(_) => Self::Float,
             Value::String(_) => Self::String,
+            Value::Dict(_) => Self::Dict,
         }
     }
 }
@@ -233,6 +236,7 @@ impl fmt::Display for ValueType {
             ValueType::Int => "int",
             ValueType::Float => "float",
             ValueType::String => "string",
+            ValueType::Dict => "dict",
         };
 
         f.write_str(type_str)
@@ -250,6 +254,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(String),
+    Dict(HashMap<String, Value>),
 }
 
 /// Drop the parsing details, keeping the value as it was read.

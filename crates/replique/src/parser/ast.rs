@@ -37,6 +37,8 @@ pub enum StmtKind {
     Set {
         /// Name of the variable, without its `$`.
         name: Spanned<String>,
+        /// Name of the attributes of the dict
+        attrs: Vec<Spanned<String>>,
         value: Spanned<Expr>,
     },
     /// `[if]`, its `[elif]` and its `[else]`, in the order they are written.
@@ -612,6 +614,7 @@ impl<'a> Parser<'a> {
         Some(Stmt {
             kind: StmtKind::Set {
                 name: assignment.name,
+                attrs: assignment.attrs,
                 value: assignment.value,
             },
             span: line_span,
@@ -1013,11 +1016,16 @@ mod tests {
     }
 
     /// Name and value of an assignment, the value as the text it covers.
-    fn set(line: &str) -> (String, String) {
+    fn set(line: &str) -> (String, Vec<String>, String) {
         let src = in_node(line);
         match only_stmt(&src) {
-            StmtKind::Set { name, value } => {
-                (name.value, src[value.span.start..value.span.end].to_owned())
+            StmtKind::Set { name, attrs, value } => {
+                let attrs = attrs.into_iter().map(|s| s.value).collect();
+                (
+                    name.value,
+                    attrs,
+                    src[value.span.start..value.span.end].to_owned(),
+                )
             }
             other => panic!("expected an assignment, got {other:?}"),
         }
@@ -1027,11 +1035,31 @@ mod tests {
     fn an_assignment_takes_a_name_and_an_expression() {
         assert_eq!(
             set("[let $gold = 10]"),
-            ("gold".to_string(), "10".to_string())
+            ("gold".to_string(), vec![], "10".to_string())
         );
         assert_eq!(
             set("[let $gold = $gold + 10]"),
-            ("gold".to_string(), "$gold + 10".to_string())
+            ("gold".to_string(), vec![], "$gold + 10".to_string())
+        );
+    }
+
+    #[test]
+    fn an_assignment_takes_a_name_and_attrs() {
+        assert_eq!(
+            set("[let $money.gold = 10]"),
+            (
+                "money".to_string(),
+                vec!["gold".to_string()],
+                "10".to_string()
+            )
+        );
+        assert_eq!(
+            set("[let $boss.hp.remaining = 10]"),
+            (
+                "boss".to_string(),
+                vec!["hp".to_string(), "remaining".to_string()],
+                "10".to_string()
+            )
         );
     }
 
@@ -1039,7 +1067,7 @@ mod tests {
     fn spaces_around_an_assignment_are_ignored() {
         assert_eq!(
             set("[let   $gold=10  ]"),
-            ("gold".to_string(), "10".to_string())
+            ("gold".to_string(), vec![], "10".to_string())
         );
     }
 
