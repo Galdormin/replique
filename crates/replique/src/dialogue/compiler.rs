@@ -106,7 +106,10 @@ fn build_block(
             StmtKind::Say { speaker, text } => builder.push(StepKind::Say {
                 line: TextLine {
                     speaker: speaker.map(|s| s.into_inner()),
-                    text: text.into_inner(),
+                    text: text
+                        .into_iter()
+                        .map(|p| p.value.try_into())
+                        .collect::<Result<_, _>>()?,
                 },
                 next: current_id,
             }),
@@ -159,8 +162,13 @@ fn build_block(
                 let choices = choices
                     .into_iter()
                     .map(|c| {
-                        build_block(builder, c.body, current_id).map(|target| ChoiceDef {
-                            text: c.text.into_inner(),
+                        let target = build_block(builder, c.body, current_id)?;
+                        Ok(ChoiceDef {
+                            text: c
+                                .text
+                                .into_iter()
+                                .map(|p| p.value.try_into())
+                                .collect::<Result<_, _>>()?,
                             target,
                         })
                     })

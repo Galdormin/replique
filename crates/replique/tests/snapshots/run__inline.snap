@@ -1,0 +1,16 @@
+---
+source: crates/replique/tests/run.rs
+assertion_line: 115
+expression: "trace(src, \"start\")"
+---
+  $argent = 3
+  $joueur = {pv: 7, stats: {force: 2}}
+  $nom = "Alice"
+say Alice "Bonjour Alice !"
+say Bob "J'ai 300 centimes."
+say - "Il me reste 7 points de vie et 2 en force."
+say Alice "Alice au début, et 3 à la fin"
+choices ["Payer 3 pièces", "Partir"]
+  pick 0 "Payer 3 pièces"
+say Alice "Merci Alice."
+end

@@ -1,0 +1,13 @@
+:= start
+[let $nom = "Alice"]
+[let $argent = 3]
+[let $joueur = {pv: 7, stats: {force: 2}}]
+Alice: Bonjour [$nom] !
+Bob: J'ai [$argent * 100] centimes.
+Il me reste [$joueur.pv] points de vie et [$joueur.stats.force] en force.
+Alice: [$nom] au début, et [$argent] à la fin
+-> Payer [$argent] pièces
+    Alice: Merci [$nom].
+-> Partir
+    Alice: Au revoir.
+---

@@ -1,0 +1,10 @@
+:= start
+Alice: Bonjour [$nom oups] !
+Alice: Rien du tout []
+Alice: Jamais fermé [$nom
+Alice: Mauvaise expression [1 +]
+-> Choix [$prix oups]
+    Alice: ok
+-> Autre choix
+    Alice: ok
+---

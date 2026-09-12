@@ -137,13 +137,13 @@ fn has_dangling_target(kind: &StepKind, max_id: u32) -> Option<StepId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dialogue::{ChoiceDef, TextLine};
+    use crate::dialogue::{ChoiceDef, TextLine, TextPart};
 
     fn line(next: StepId) -> StepKind {
         StepKind::Say {
             line: TextLine {
                 speaker: None,
-                text: "...".into(),
+                text: vec![TextPart::Text("...".into())],
             },
             next,
         }
@@ -154,7 +154,7 @@ mod tests {
             choices: targets
                 .iter()
                 .map(|t| ChoiceDef {
-                    text: "...".into(),
+                    text: vec![TextPart::Text("...".into())],
                     target: *t,
                 })
                 .collect(),

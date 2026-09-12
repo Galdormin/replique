@@ -126,4 +126,5 @@ run!(
     (conditions, "start"),
     (else_branch, "start"),
     (dicts, "start"),
+    (inline, "start"),
 );

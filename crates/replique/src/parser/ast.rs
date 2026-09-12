@@ -24,7 +24,7 @@ pub struct NodeDecl {
 pub enum StmtKind {
     Say {
         speaker: Option<Spanned<String>>,
-        text: Spanned<String>,
+        text: Vec<Spanned<TextPart>>,
     },
     Choice {
         choices: Vec<Choice>,
@@ -67,8 +67,9 @@ pub struct Stmt {
 
 #[derive(Debug)]
 pub struct Choice {
-    /// Text of the choice after `->`
-    pub text: Spanned<String>,
+    /// Text of the choice after `->`, split into its literal and inline
+    /// expression parts.
+    pub text: Vec<Spanned<TextPart>>,
     /// List of all Stmt in the body
     pub body: Vec<Stmt>,
     /// From the `->` to the end of its body.
@@ -124,6 +125,12 @@ impl Value {
 
         Some(out)
     }
+}
+
+#[derive(Debug)]
+pub enum TextPart {
+    Text(String),
+    Expression(Expr),
 }
 
 pub fn parse(src: &str) -> Parsed {
@@ -321,7 +328,7 @@ impl<'a> Parser<'a> {
             let body = self.parse_block(base + 1);
             let span = body.last().map_or(line.span, |s| line.span.join(s.span));
             choices.push(Choice {
-                text: text.into(),
+                text: self.parse_text_line(text),
                 body,
                 span,
             });
@@ -493,7 +500,7 @@ impl<'a> Parser<'a> {
             LineKind::Say { speaker, text } => Some(Stmt {
                 kind: StmtKind::Say {
                     speaker: speaker.map(|s| s.into()),
-                    text: text.into(),
+                    text: self.parse_text_line(text),
                 },
                 span: line.span,
             }),
@@ -689,6 +696,70 @@ impl<'a> Parser<'a> {
             }
         }
     }
+
+    /// Splits `Some text from [$var]` into the parts it is made of.
+    ///
+    /// A `[` opens an inline expression that the next `]` closes; everything
+    /// else is text. What the expression parser does not read inside the
+    /// brackets is reported here, where the bracket is known, exactly as a
+    /// `[let]` or an `[if]` reports its own trailing text.
+    ///
+    /// A `[` the line never closes is reported and kept as text, so the line
+    /// still says something instead of losing its end.
+    fn parse_text_line(&mut self, text: Spanned<&str>) -> Vec<Spanned<TextPart>> {
+        let Spanned { value: text, span } = text;
+        let mut parts = Vec::new();
+        let mut rest = 0;
+
+        while let Some(open) = text[rest..].find('[') {
+            let open = rest + open;
+            push_text(&mut parts, text, span, rest..open);
+
+            let Some(close) = text[open..].find(']') else {
+                self.diags.push(
+                    Span::from_length(span.start + open, text.len() - open),
+                    DiagnosticKind::UnclosedBracket("[".to_owned()),
+                );
+                push_text(&mut parts, text, span, open..text.len());
+                return parts;
+            };
+            let close = open + close;
+
+            let inner_span = Span::from_length(span.start + open + 1, close - open - 1);
+            let inner = Spanned::new(&text[open + 1..close], inner_span);
+            let (expr, trailing) = pratt::parse_with_trailing(&inner, &mut self.diags);
+            if let Some(span) = trailing {
+                self.diags
+                    .push(span, DiagnosticKind::UnexpectedTextInBracket);
+            }
+            parts.push(Spanned::new(TextPart::Expression(expr.value), inner_span));
+
+            rest = close + 1;
+        }
+
+        push_text(&mut parts, text, span, rest..text.len());
+        parts
+    }
+}
+
+/// Pushes `text[range]` as a [`TextPart::Text`], unless it is empty.
+///
+/// `span` is the span of the whole line, which the range is an offset into.
+fn push_text(
+    parts: &mut Vec<Spanned<TextPart>>,
+    text: &str,
+    span: Span,
+    range: std::ops::Range<usize>,
+) {
+    if range.is_empty() {
+        return;
+    }
+
+    let part_span = Span::from_length(span.start + range.start, range.len());
+    parts.push(Spanned::new(
+        TextPart::Text(text[range].to_owned()),
+        part_span,
+    ));
 }
 
 pub(super) fn is_valid_ident(name: &str) -> bool {
@@ -749,6 +820,77 @@ mod tests {
             .collect()
     }
 
+    /// Parts of the only line of `src`, a literal as `"text"` and an inline
+    /// expression as `[]`.
+    fn parts(line: &str) -> Vec<String> {
+        let StmtKind::Say { text, .. } = only_stmt(&in_node(line)) else {
+            panic!("expected a line of dialogue");
+        };
+
+        text.into_iter()
+            .map(|p| match p.value {
+                TextPart::Text(text) => format!("{text:?}"),
+                TextPart::Expression(_) => "[]".to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_line_without_a_bracket_is_a_single_part() {
+        assert_eq!(parts("Alice: Hello!"), [r#""Hello!""#]);
+    }
+
+    #[test]
+    fn an_inline_expression_splits_the_line_it_sits_in() {
+        assert_eq!(
+            parts("Alice: Hello [$name]!"),
+            [r#""Hello ""#, "[]", r#""!""#]
+        );
+        assert_eq!(parts("Alice: [$a] and [$b]"), ["[]", r#"" and ""#, "[]"]);
+        assert_eq!(parts("Alice: [$name]"), ["[]"]);
+        assert_eq!(parts("Alice: [$a][$b]"), ["[]", "[]"]);
+    }
+
+    #[test]
+    fn an_inline_expression_reads_a_whole_expression() {
+        assert_eq!(
+            parts("Alice: I have [$money * 100] cents"),
+            [r#""I have ""#, "[]", r#"" cents""#]
+        );
+        assert!(codes(&in_node("Alice: I have [$money * 100] cents")).is_empty());
+    }
+
+    #[test]
+    fn error_on_text_left_after_an_inline_expression() {
+        assert_eq!(
+            codes(&in_node("Alice: Hello [$name oups]!")),
+            ["unexpected-text-in-bracket"]
+        );
+    }
+
+    #[test]
+    fn error_on_an_inline_expression_with_nothing_in_it() {
+        assert_eq!(codes(&in_node("Alice: Hello []!")), ["expected-expression"]);
+    }
+
+    /// The `[` is kept as text, so the line still says something.
+    #[test]
+    fn error_on_an_inline_expression_the_line_never_closes() {
+        assert_eq!(codes(&in_node("Alice: Hello [$name")), ["unclosed-bracket"]);
+        assert_eq!(parts("Alice: Hello [$name"), [r#""Hello ""#, r#""[$name""#]);
+    }
+
+    #[test]
+    fn a_choice_reads_its_inline_expressions_too() {
+        let StmtKind::Choice { choices } = only_stmt(&in_node("-> Pay [$price] gold")) else {
+            panic!("expected a choice group");
+        };
+
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].text.len(), 3);
+        assert!(matches!(choices[0].text[1].value, TextPart::Expression(_)));
+    }
+
     #[test]
     fn a_broken_node_does_not_contaminate_the_next_one() {
         let parsed = parse(":= a\n---- oups\n---\n:= b\nAlice: ok\n---\n");
@@ -788,7 +930,13 @@ mod tests {
         };
 
         assert_eq!(choices.len(), 1);
-        assert_eq!(choices[0].text.value, "A");
+        assert!(matches!(
+            &choices[0].text[..],
+            [Spanned {
+                value: TextPart::Text(text),
+                ..
+            }] if text == "A"
+        ));
         assert!(matches!(
             choices[0].body[..],
             [Stmt {

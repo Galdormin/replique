@@ -5,7 +5,7 @@
 
 use replique::parser::{
     LineIndex, Parsed, Span,
-    ast::{Choice, NodeDecl, Stmt, StmtKind},
+    ast::{Choice, NodeDecl, Stmt, StmtKind, TextPart},
     diagnostic::Diagnostic,
     parse,
 };
@@ -52,6 +52,25 @@ fn render_node(out: &mut String, src: &Src, node: &NodeDecl) {
     render_stmts(out, src, &node.body, 1);
 }
 
+/// Parts of a line or a choice, one after the other: a literal as a quoted
+/// string, an inline expression as the source it covers, brackets included.
+fn render_text(src: &Src, parts: &[replique::parser::Spanned<TextPart>]) -> String {
+    if parts.is_empty() {
+        return "(empty)".to_owned();
+    }
+
+    parts
+        .iter()
+        .map(|part| match &part.value {
+            TextPart::Text(text) => format!("{text:?}"),
+            TextPart::Expression(_) => {
+                format!("[{}]", &src.raw[part.span.start..part.span.end])
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
     for stmt in stmts {
         let pad = "  ".repeat(depth);
@@ -60,9 +79,9 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                 let speaker = speaker.as_ref().map_or("-", |s| &s.value);
                 let _ = writeln!(
                     out,
-                    "{pad}line {} {:?} {}",
+                    "{pad}line {} {} {}",
                     speaker,
-                    text.value,
+                    render_text(src, text),
                     at(src, stmt.span)
                 );
             }
@@ -120,7 +139,12 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
                 for Choice { text, body, span } in choices {
-                    let _ = writeln!(out, "{pad}  choice {:?} {}", text.value, at(src, *span));
+                    let _ = writeln!(
+                        out,
+                        "{pad}  choice {} {}",
+                        render_text(src, text),
+                        at(src, *span)
+                    );
                     render_stmts(out, src, body, depth + 2);
                 }
             }
@@ -180,6 +204,7 @@ corpus!(
     conditions,
     else_branch,
     dicts,
+    inline,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -198,4 +223,5 @@ corpus!(
     bad_lets,
     bad_conditions,
     bad_dicts,
+    bad_inline,
 );
