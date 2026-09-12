@@ -1,0 +1,22 @@
+---
+source: crates/replique/tests/corpus.rs
+assertion_line: 192
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set nom "\"Alice\"" @2:1 "[let $nom = \"Alice\"]"
+  set argent "3" @3:1 "[let $argent = 3]"
+  set joueur "{pv: 7, stats: {force: 2}}" @4:1 "[let $joueur = {pv: 7, stats: {force: 2}}]"
+  line Alice "Bonjour " [$nom] " !" @5:1 "Alice: Bonjour [$nom] !"
+  line Bob "J'ai " [$argent * 100] " centimes." @6:1 "Bob: J'ai [$argent * 100] centimes."
+  line - "Il me reste " [$joueur.pv] " points de vie et " [$joueur.stats.force] " en force." @7:1 "Il me reste [$joueur.pv] points de vie et [$joueur.stats.force] en force."
+  line Alice [$nom] " au début, et " [$argent] " à la fin" @8:1 "Alice: [$nom] au début, et [$argent] à la fin"
+  choice-group @9:1 "-> Payer [$argent] pièces\n    Alice: Merci [$nom].\n-> Partir\n    Alice: Au revoir."
+    choice "Payer " [$argent] " pièces" @9:1 "-> Payer [$argent] pièces\n    Alice: Merci [$nom]."
+      line Alice "Merci " [$nom] "." @10:5 "Alice: Merci [$nom]."
+    choice "Partir" @11:1 "-> Partir\n    Alice: Au revoir."
+      line Alice "Au revoir." @12:5 "Alice: Au revoir."
+
+== diagnostics ==
+(none)

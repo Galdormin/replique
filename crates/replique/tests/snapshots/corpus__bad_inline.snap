@@ -1,0 +1,23 @@
+---
+source: crates/replique/tests/corpus.rs
+assertion_line: 192
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Bonjour " [$nom oups] " !" @2:1 "Alice: Bonjour [$nom oups] !"
+  line Alice "Rien du tout " [] @3:1 "Alice: Rien du tout []"
+  line Alice "Jamais fermé " "[$nom" @4:1 "Alice: Jamais fermé [$nom"
+  line Alice "Mauvaise expression " [1 +] @5:1 "Alice: Mauvaise expression [1 +]"
+  choice-group @6:1 "-> Choix [$prix oups]\n    Alice: ok\n-> Autre choix\n    Alice: ok"
+    choice "Choix " [$prix oups] @6:1 "-> Choix [$prix oups]\n    Alice: ok"
+      line Alice "ok" @7:5 "Alice: ok"
+    choice "Autre choix" @8:1 "-> Autre choix\n    Alice: ok"
+      line Alice "ok" @9:5 "Alice: ok"
+
+== diagnostics ==
+error unexpected-text-in-bracket @2:22 "oups"
+error expected-expression @3:22 ""
+error unclosed-bracket @4:22 "[$nom"
+error expected-expression @5:32 ""
+error unexpected-text-in-bracket @6:17 "oups"

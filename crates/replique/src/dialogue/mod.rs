@@ -18,7 +18,7 @@
 use std::{collections::HashMap, fmt};
 
 use crate::{
-    dialogue::expr::Expr,
+    dialogue::{builder::BuildError, expr::Expr},
     parser::{Spanned, ast},
 };
 
@@ -185,18 +185,36 @@ pub(crate) enum StepKind {
 
 /// A line of dialogue, with who says it.
 #[derive(Debug, Clone)]
-pub struct TextLine {
+pub(crate) struct TextLine {
     /// Speaker written before the `:`, or `None` for a line without one.
     pub speaker: Option<String>,
-    pub text: String,
+    pub text: Vec<TextPart>,
+}
+
+/// Part of a [`TextLine`]
+#[derive(Debug, Clone)]
+pub(crate) enum TextPart {
+    Text(String),
+    Expression(Expr),
+}
+
+impl TryFrom<ast::TextPart> for TextPart {
+    type Error = BuildError;
+
+    fn try_from(value: ast::TextPart) -> Result<Self, BuildError> {
+        match value {
+            ast::TextPart::Text(s) => Ok(TextPart::Text(s)),
+            ast::TextPart::Expression(expr) => Ok(TextPart::Expression(expr.try_into()?)),
+        }
+    }
 }
 
 /// One entry of a [`StepKind::Choice`]: what the player reads, and where
 /// picking it leads.
 #[derive(Debug, Clone)]
 pub(crate) struct ChoiceDef {
-    /// Text written after the `->`.
-    pub text: String,
+    /// Text written after the `->`, as the parts it is made of.
+    pub text: Vec<TextPart>,
     /// First step of the body of the choice.
     pub target: StepId,
 }
@@ -265,6 +283,27 @@ impl From<ast::Value> for Value {
             ast::Value::String(val) => Value::String(val),
             ast::Value::Float(val) => Value::Float(val),
             ast::Value::Int(val) => Value::Int(val),
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Bool(val) => write!(f, "{val}"),
+            Value::Int(val) => write!(f, "{val}"),
+            Value::Float(val) => write!(f, "{val}"),
+            Value::String(val) => f.write_str(val),
+            Value::Dict(hash_map) => {
+                // Sorted, because a `HashMap` gives its entries in no set
+                // order and this ends up in a line the player reads.
+                let mut attrs = hash_map
+                    .iter()
+                    .map(|(k, v)| format!("{k}: {v}"))
+                    .collect::<Vec<_>>();
+                attrs.sort();
+                write!(f, "{{{}}}", attrs.join(", "))
+            }
         }
     }
 }

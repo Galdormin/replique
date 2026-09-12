@@ -41,7 +41,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::dialogue::{
-    Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Value,
+    Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, TextPart, Value,
     expr::{EvalError, Expr},
 };
 
@@ -244,13 +244,17 @@ impl DialogueVm {
         for _ in 0..MAX_STEPS {
             match self.get_step_at(&cursor)?.kind.clone() {
                 StepKind::Say { line, next } => {
+                    // Rendered before the state moves: an inline expression
+                    // that does not evaluate must leave the VM where it was.
+                    let text = self.render_text(line.text)?;
+
                     self.state = VmState::Suspended {
                         cursor,
                         at: SuspendedAt::Line { next },
                     };
                     return Ok(DialogueEvent::Say {
                         speaker: line.speaker,
-                        text: line.text,
+                        text,
                     });
                 }
                 StepKind::Command { command, next } => {
@@ -299,15 +303,17 @@ impl DialogueVm {
                     };
                 }
                 StepKind::Choice { choices } => {
+                    let targets = choices.iter().map(|c| c.target).collect();
+                    let texts = choices
+                        .into_iter()
+                        .map(|c| self.render_text(c.text))
+                        .collect::<Result<_, _>>()?;
+
                     self.state = VmState::Suspended {
                         cursor,
-                        at: SuspendedAt::Choice {
-                            targets: choices.iter().map(|c| c.target).collect(),
-                        },
+                        at: SuspendedAt::Choice { targets },
                     };
-                    return Ok(DialogueEvent::Choices {
-                        choices: choices.into_iter().map(|c| c.text).collect(),
-                    });
+                    return Ok(DialogueEvent::Choices { choices: texts });
                 }
                 StepKind::Jump(name) => cursor = self.get_cursor_for_node(name)?,
                 StepKind::End => {
@@ -351,6 +357,21 @@ impl DialogueVm {
     /// Eval an Expr
     fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
         expr.eval(&self.vars)
+    }
+
+    /// The text a line or a choice reads as, with every inline expression
+    /// replaced by what it evaluates to.
+    fn render_text(&self, parts: Vec<TextPart>) -> Result<String, EvalError> {
+        let mut out = String::new();
+
+        for part in parts {
+            match part {
+                TextPart::Text(text) => out.push_str(&text),
+                TextPart::Expression(expr) => out.push_str(&self.eval(expr)?.to_string()),
+            }
+        }
+
+        Ok(out)
     }
 
     /// Walks `attrs` down the dicts held by the variable `name`, and writes
@@ -399,7 +420,7 @@ mod tests {
         StepKind::Say {
             line: TextLine {
                 speaker: speaker.map(String::from),
-                text: text.into(),
+                text: vec![TextPart::Text(text.into())],
             },
             next,
         }
@@ -439,11 +460,11 @@ mod tests {
         let c = b.push(StepKind::Choice {
             choices: vec![
                 ChoiceDef {
-                    text: "go left".into(),
+                    text: vec![TextPart::Text("go left".into())],
                     target: left,
                 },
                 ChoiceDef {
-                    text: "go right".into(),
+                    text: vec![TextPart::Text("go right".into())],
                     target: right,
                 },
             ],
