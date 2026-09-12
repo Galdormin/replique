@@ -1,0 +1,22 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "replique",
+      "camelcase": "Replique",
+      "scope": "source.replique",
+      "path": ".",
+      "file-types": ["rep", "replique"],
+      "injection-regex": "^replique$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT OR Apache-2.0",
+    "description": "Replique dialogue grammar for tree-sitter",
+    "authors": [{ "name": "Théo Plénet" }],
+    "links": {
+      "repository": "https://github.com/Galdormin/replique"
+    }
+  }
+}
