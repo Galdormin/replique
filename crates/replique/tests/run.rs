@@ -87,6 +87,16 @@ fn render_value(value: &Value) -> String {
         Value::Int(val) => val.to_string(),
         Value::Float(val) => val.to_string(),
         Value::String(val) => format!("{val:?}"),
+        Value::Dict(map) => {
+            // Sorted, because a `HashMap` gives its entries in no set order
+            // and the snapshot must not change from a run to the next.
+            let mut attrs = map
+                .iter()
+                .map(|(key, val)| format!("{key}: {}", render_value(val)))
+                .collect::<Vec<_>>();
+            attrs.sort();
+            format!("{{{}}}", attrs.join(", "))
+        }
     }
 }
 
@@ -115,4 +125,5 @@ run!(
     (lets, "start"),
     (conditions, "start"),
     (else_branch, "start"),
+    (dicts, "start"),
 );

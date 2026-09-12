@@ -1,7 +1,7 @@
 use crate::parser::{
     Span, Spanned,
     ast::Value,
-    diagnostic::{DiagnosticKind, Diagnostics},
+    diagnostic::{DiagnosticKind, Diagnostics, Label},
     expr::{
         BinaryOp, Expr, UnaryOp,
         lexer::{Lexed, Token, lex},
@@ -35,6 +35,8 @@ pub(crate) fn parse_with_trailing(
 pub(crate) struct Assignment {
     /// Name of the variable, without its `$`. Its span covers the sigil.
     pub name: Spanned<String>,
+    /// Name of the path of attibutes
+    pub attrs: Vec<Spanned<String>>,
     pub value: Spanned<Expr>,
     /// What the expression did not read, from the first token left to the end
     /// of the source. Reported by the caller, which knows what statement it
@@ -53,8 +55,23 @@ pub(crate) fn parse_assignment(src: &Spanned<&str>, diags: &mut Diagnostics) -> 
         } => Spanned::new(name.clone(), *span),
         _ => return None,
     };
+
+    let mut attrs = vec![];
+    loop {
+        parser.bump();
+        match parser.peek()? {
+            Spanned {
+                value: Token::Assign,
+                ..
+            } => break,
+            Spanned {
+                value: Token::Attr(attr),
+                span,
+            } => attrs.push(Spanned::new(attr.clone(), *span)),
+            _ => return None,
+        }
+    }
     parser.bump();
-    parser.eat_if(|tok| matches!(tok, Token::Assign))?;
 
     let value = parser.expr(0);
     value.value.is_type_valid(parser.diags);
@@ -62,6 +79,7 @@ pub(crate) fn parse_assignment(src: &Spanned<&str>, diags: &mut Diagnostics) -> 
 
     Some(Assignment {
         name,
+        attrs,
         value,
         trailing,
     })
@@ -98,6 +116,11 @@ impl<'a> ExprParser<'a> {
     /// Span of the next token, without consuming it.
     fn peek_span(&self) -> Option<Span> {
         self.peek().map(|tok| tok.span)
+    }
+
+    /// Token of the next token, without consuming it.
+    fn peek_token(&self) -> Option<&Token> {
+        self.peek().map(|tok| &tok.value)
     }
 
     fn bump(&mut self) {
@@ -137,6 +160,12 @@ impl<'a> ExprParser<'a> {
 
     /// Read the first expression of the line
     fn prefix(&mut self) -> Spanned<Expr> {
+        let base = self.primary();
+        self.attrs(base)
+    }
+
+    /// Return the base of a potential attr
+    fn primary(&mut self) -> Spanned<Expr> {
         let Some(Spanned { value, span }) = self.peek().cloned() else {
             self.diags
                 .push(self.end_span, DiagnosticKind::ExpectedExpression);
@@ -146,10 +175,7 @@ impl<'a> ExprParser<'a> {
         self.bump();
 
         match value {
-            Token::Var(name) => Spanned {
-                value: Expr::Var { name },
-                span,
-            },
+            Token::Var(name) => Spanned::new(Expr::Var { name }, span),
             Token::Func(name) => self.parse_call(Spanned::new(name, span)),
             Token::Ident(val) => match val.as_str() {
                 "true" => lit(Value::Bool(true), span),
@@ -167,24 +193,57 @@ impl<'a> ExprParser<'a> {
             // Parenthesis
             Token::LParen => {
                 let expr = self.expr(0);
-                if matches!(
-                    self.peek(),
-                    Some(&Spanned {
-                        value: Token::RParen,
-                        ..
-                    })
-                ) {
+                if matches!(self.peek_token(), Some(&Token::RParen)) {
                     self.bump();
                 } else {
                     self.diags.push(span, DiagnosticKind::UnclosedParenthesis);
                 }
                 expr
             }
+
+            // Litteral dict
+            Token::LBrace => self.parse_litteral_dict(span),
+
             _ => {
                 self.diags.push(span, DiagnosticKind::ExpectedExpression);
                 error(span)
             }
         }
+    }
+
+    /// Attaches every `.attr` to the base
+    fn attrs(&mut self, base: Spanned<Expr>) -> Spanned<Expr> {
+        let mut attrs = vec![];
+
+        // Read all attr
+        while let Some(Spanned {
+            value: Token::Attr(name),
+            span,
+        }) = self.peek().cloned()
+        {
+            self.bump();
+            attrs.push(Spanned::new(name, span));
+        }
+
+        let Some(last) = attrs.last() else {
+            // No attr found
+            return base;
+        };
+        let full_span = base.span.join(last.span);
+
+        if !matches!(base.value, Expr::Var { .. } | Expr::Function { .. }) {
+            self.diags
+                .push(full_span, DiagnosticKind::AttributeOnNonVariable);
+            return error(full_span);
+        }
+
+        Spanned::new(
+            Expr::Attr {
+                base: Box::new(base),
+                attrs,
+            },
+            full_span,
+        )
     }
 
     fn unary(&mut self, op: Spanned<UnaryOp>) -> Spanned<Expr> {
@@ -213,7 +272,7 @@ impl<'a> ExprParser<'a> {
             // An argument.
             match self.peek() {
                 Some(Spanned {
-                    value: Token::RParen | Token::ArgSeparator,
+                    value: Token::RParen | Token::Separator,
                     span,
                 }) => {
                     let span = *span;
@@ -231,13 +290,10 @@ impl<'a> ExprParser<'a> {
             if let Some(span) = self.eat_if(|tok| matches!(tok, Token::RParen)) {
                 return Spanned::new(Expr::Function { name, args }, name_span.join(span));
             }
-            if self
-                .eat_if(|tok| matches!(tok, Token::ArgSeparator))
-                .is_none()
-            {
+            if self.eat_if(|tok| matches!(tok, Token::Separator)).is_none() {
                 return match self.peek_span() {
                     Some(span) => {
-                        self.diags.push(span, DiagnosticKind::ExpectedArgSeparator);
+                        self.diags.push(span, DiagnosticKind::ExpectedSeparator);
                         self.abandon_call(name_span)
                     }
                     None => {
@@ -249,18 +305,13 @@ impl<'a> ExprParser<'a> {
         }
     }
 
-    /// Gives up on a call whose fault is already reported: what is left of it
-    /// is skipped so that the caller reads the rest of the line as if the call
-    /// had been well formed, and the whole call stands as one [`Expr::Error`].
+    /// Gives up on a call whose fault is already reported.
+    /// Consume what is left before the end of the call `)` then return [`Expr::Error`].
     fn abandon_call(&mut self, name_span: Span) -> Spanned<Expr> {
         let end = self.skip_to_call_end().unwrap_or(name_span);
         error(name_span.join(end))
     }
 
-    /// Reads up to and including the `)` closing the call being parsed, and
-    /// gives back its span. Calls and parentheses opened along the way are
-    /// counted, so their own `)` does not end the skip. A call that the line
-    /// never closes stops at the end of the tokens, and gives back nothing.
     fn skip_to_call_end(&mut self) -> Option<Span> {
         let mut depth = 0usize;
 
@@ -272,6 +323,136 @@ impl<'a> ExprParser<'a> {
                     false
                 }
                 Token::RParen => true,
+                _ => false,
+            };
+
+            self.bump();
+
+            if closing {
+                match depth.checked_sub(1) {
+                    Some(outer) => depth = outer,
+                    None => return Some(span),
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Parse a litteral dict `{name: "Léon", age: 1}`.
+    /// Do not consume the last `}`
+    fn parse_litteral_dict(&mut self, open_span: Span) -> Spanned<Expr> {
+        let mut attrs = Vec::new();
+
+        // Empty dict
+        if let Some(span) = self.eat_if(|tok| matches!(tok, Token::RBrace)) {
+            return Spanned::new(Expr::LitteralDict(attrs), open_span.join(span));
+        }
+
+        loop {
+            // Key
+            let key = match self.peek() {
+                Some(Spanned {
+                    value: Token::Ident(k),
+                    span,
+                }) => Spanned::new(k.clone(), *span),
+                Some(Spanned { span, .. }) => {
+                    let span = *span;
+                    self.diags.push(span, DiagnosticKind::ExpectedKey);
+                    return self.abandon_dict(open_span);
+                }
+                None => {
+                    self.diags.push(open_span, DiagnosticKind::UnclosedDict);
+                    return error(open_span);
+                }
+            };
+            self.bump();
+
+            // Colon
+            if self.eat_if(|tok| matches!(tok, Token::Colon)).is_none() {
+                return match self.peek_span() {
+                    Some(span) => {
+                        self.diags.push(span, DiagnosticKind::ExpectedColon);
+                        return self.abandon_dict(open_span);
+                    }
+                    None => {
+                        self.diags.push(open_span, DiagnosticKind::UnclosedDict);
+                        error(open_span)
+                    }
+                };
+            }
+
+            // Expression
+            let val = match self.peek() {
+                Some(Spanned {
+                    value: Token::RBrace | Token::Separator,
+                    span,
+                }) => {
+                    let span = *span;
+                    self.diags.push(span, DiagnosticKind::ExpectedExpression);
+                    return self.abandon_dict(open_span);
+                }
+                None => {
+                    self.diags.push(open_span, DiagnosticKind::UnclosedDict);
+                    return error(open_span);
+                }
+                _ => self.expr(0),
+            };
+
+            // Only the last value survives the conversion to a map, so a key
+            // written twice is almost always a mistake rather than an override.
+            if let Some((first, _)) = attrs.iter().find(|(k, _)| k.value == key.value) {
+                self.diags.push_labeled(
+                    key.span,
+                    DiagnosticKind::DuplicateKey(key.value.clone()),
+                    vec![Label {
+                        span: first.span,
+                        message: "first given here".to_owned(),
+                    }],
+                );
+            }
+
+            attrs.push((key, val));
+
+            // Possible `}`
+            if let Some(span) = self.eat_if(|tok| matches!(tok, Token::RBrace)) {
+                return Spanned::new(Expr::LitteralDict(attrs), open_span.join(span));
+            }
+
+            // Separator
+            if self.eat_if(|tok| matches!(tok, Token::Separator)).is_none() {
+                return match self.peek_span() {
+                    Some(span) => {
+                        self.diags.push(span, DiagnosticKind::ExpectedSeparator);
+                        self.abandon_dict(open_span)
+                    }
+                    None => {
+                        self.diags.push(open_span, DiagnosticKind::UnclosedDict);
+                        error(open_span)
+                    }
+                };
+            }
+        }
+    }
+
+    /// Gives up on a dict whose fault is already reported.
+    /// Consume what is left before the end of the dict `}` then return [`Expr::Error`].
+    fn abandon_dict(&mut self, open_span: Span) -> Spanned<Expr> {
+        let end = self.skip_to_dict_end().unwrap_or(open_span);
+        error(open_span.join(end))
+    }
+
+    fn skip_to_dict_end(&mut self) -> Option<Span> {
+        let mut depth = 0usize;
+
+        while let Some(tok) = self.peek() {
+            let span = tok.span;
+            let closing = match tok.value {
+                Token::LBrace => {
+                    depth += 1;
+                    false
+                }
+                Token::RBrace => true,
                 _ => false,
             };
 
@@ -349,12 +530,28 @@ mod tests {
     fn render(expr: &Expr) -> String {
         match expr {
             Expr::Var { name } => format!("${name}"),
+            Expr::Attr { base, attrs } => {
+                let attrs = attrs
+                    .iter()
+                    .map(|s| &*s.value)
+                    .collect::<Vec<_>>()
+                    .join(".");
+                format!("{}.{attrs}", render(&base.value))
+            }
             Expr::Litteral { value } => match value {
                 Value::Bool(b) => b.to_string(),
                 Value::String(s) => format!("{s:?}"),
                 Value::Float(f) => f.to_string(),
                 Value::Int(i) => i.to_string(),
             },
+            Expr::LitteralDict(attrs) => {
+                let attrs = attrs
+                    .iter()
+                    .map(|(key, attr)| format!("{}: {}", key.value, render(&attr.value)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{{attrs}}}")
+            }
             Expr::Function { name, args } => {
                 let mut out = format!("({}", name.value);
                 for arg in args {
@@ -437,6 +634,16 @@ mod tests {
     }
 
     #[test]
+    fn a_var_or_func_with_attr_is_an_attr() {
+        assert_eq!(tree("$var.attr"), "$var.attr");
+        assert_eq!(tree("$var.attr1.attr2"), "$var.attr1.attr2");
+        assert_eq!(tree("$var.attr1.attr2 + 5"), "(+ $var.attr1.attr2 5)");
+
+        assert_eq!(tree("data().attr"), "(data).attr");
+        assert_eq!(tree("data().attr1.attr2"), "(data).attr1.attr2");
+    }
+
+    #[test]
     fn spans_cover_the_whole_expression() {
         let src = "1 + max(2, 3)";
         let mut diags = Diagnostics::from_src(src);
@@ -494,6 +701,120 @@ mod tests {
     #[test]
     fn the_closing_parenthesis_skipped_is_the_one_of_the_faulty_call() {
         let (tree, codes) = parsed("max(1 min(2, 3)) + 4");
+
+        assert_eq!(codes, ["expected-arg-separator"]);
+        assert_eq!(tree, "(+ <error> 4)");
+    }
+
+    #[test]
+    fn error_on_attr_on_non_variable() {
+        assert_eq!(codes("Alice.attr.attr"), ["attribute-on-non-variable"]);
+    }
+
+    #[test]
+    fn a_litteral_dict_holds_its_entries_in_order() {
+        assert_eq!(tree("{}"), "{}");
+        assert_eq!(tree("{hp: 10}"), "{hp: 10}");
+        assert_eq!(
+            tree(r#"{name: "Leon", age: 1}"#),
+            r#"{name: "Leon", age: 1}"#
+        );
+        assert!(codes("{hp: 10}").is_empty());
+    }
+
+    #[test]
+    fn a_dict_entry_holds_an_expression() {
+        assert_eq!(tree("{hp: $base + 2}"), "{hp: (+ $base 2)}");
+        assert_eq!(tree("{hp: max(1, $gold)}"), "{hp: (max 1 $gold)}");
+        assert_eq!(tree("{hp: -1}"), "{hp: (- 1)}");
+    }
+
+    #[test]
+    fn a_dict_nests() {
+        assert_eq!(tree("{stats: {hp: 10}}"), "{stats: {hp: 10}}");
+        assert_eq!(tree("{a: {b: {c: 1}}, d: 2}"), "{a: {b: {c: 1}}, d: 2}");
+    }
+
+    #[test]
+    fn a_dict_is_a_value_like_any_other() {
+        assert_eq!(tree("{hp: 1} == $data"), "(== {hp: 1} $data)");
+        assert_eq!(tree("max({hp: 1}, $data)"), "(max {hp: 1} $data)");
+    }
+
+    #[test]
+    fn error_on_an_attr_read_on_a_litteral_dict() {
+        assert_eq!(codes("{hp: 1}.hp"), ["attribute-on-non-variable"]);
+    }
+
+    #[test]
+    fn error_on_a_dict_the_line_never_closes() {
+        assert_eq!(codes("{hp: 1"), ["unclosed-dict"]);
+        assert_eq!(codes("{hp:"), ["unclosed-dict"]);
+        assert_eq!(codes("{hp"), ["unclosed-dict"]);
+        assert_eq!(codes("{"), ["unclosed-dict"]);
+    }
+
+    #[test]
+    fn error_on_a_key_that_is_not_a_name() {
+        assert_eq!(codes("{1: 2}"), ["expected-key"]);
+        assert_eq!(codes("{$hp: 2}"), ["expected-key"]);
+    }
+
+    #[test]
+    fn error_on_a_missing_colon() {
+        assert_eq!(codes("{hp 1}"), ["expected-colon"]);
+    }
+
+    #[test]
+    fn error_on_a_value_that_is_missing() {
+        assert_eq!(codes("{hp: }"), ["expected-expression"]);
+        assert_eq!(codes("{hp: , age: 1}"), ["expected-expression"]);
+    }
+
+    #[test]
+    fn warning_on_a_key_given_twice() {
+        let (tree, codes) = parsed("{hp: 1, hp: 2}");
+
+        assert_eq!(codes, ["duplicate-key"]);
+        // Both entries are kept by the parser; the map keeps the last one.
+        assert_eq!(tree, "{hp: 1, hp: 2}");
+    }
+
+    #[test]
+    fn a_key_given_twice_is_only_a_warning() {
+        let src = "{hp: 1, hp: 2}";
+        let mut diags = Diagnostics::from_src(src);
+        ExprParser::new(&Spanned::from_text(src, 0), &mut diags).expr(0);
+
+        assert_eq!(diags.errors(), 0);
+        assert_eq!(diags.warnings(), 1);
+    }
+
+    #[test]
+    fn the_span_of_a_dict_covers_its_braces() {
+        let src = "{}";
+        let mut diags = Diagnostics::from_src(src);
+        let expr = ExprParser::new(&Spanned::from_text(src, 0), &mut diags).expr(0);
+
+        assert_eq!(expr.span, Span { start: 0, end: 2 });
+    }
+
+    #[test]
+    fn error_on_two_entries_with_no_separator() {
+        assert_eq!(codes("{hp: 1 age: 2}"), ["expected-arg-separator"]);
+    }
+
+    #[test]
+    fn a_faulty_dict_is_reported_once_and_the_rest_of_the_line_is_read() {
+        let (tree, codes) = parsed("{hp: 1 age: 2} + 3");
+
+        assert_eq!(codes, ["expected-arg-separator"]);
+        assert_eq!(tree, "(+ <error> 3)");
+    }
+
+    #[test]
+    fn the_closing_brace_skipped_is_the_one_of_the_faulty_dict() {
+        let (tree, codes) = parsed("{hp: 1 stats: {a: 1}} + 4");
 
         assert_eq!(codes, ["expected-arg-separator"]);
         assert_eq!(tree, "(+ <error> 4)");

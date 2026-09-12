@@ -120,8 +120,9 @@ fn build_block(
                 },
                 next: current_id,
             }),
-            StmtKind::Set { name, value } => builder.push(StepKind::Set {
+            StmtKind::Set { name, attrs, value } => builder.push(StepKind::Set {
                 name: name.into_inner(),
+                attrs: attrs.into_iter().map(|s| s.value).collect(),
                 value: value.value.try_into().expect("checked by the parser"),
                 next: current_id,
             }),

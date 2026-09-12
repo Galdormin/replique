@@ -1,0 +1,36 @@
+---
+source: crates/replique/tests/corpus.rs
+assertion_line: 168
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set joueur "{nom: \"Alice\", pv: 10, stats: {force: 3, agilite: 5}}" @2:1 "[let $joueur = {nom: \"Alice\", pv: 10, stats: {force: 3, agilite: 5}}]"
+  set vide "{}" @3:1 "[let $vide = {}]"
+  set pv_max "10" @4:1 "[let $pv_max = 10]"
+  line Alice "Voici ma fiche." @5:1 "Alice: Voici ma fiche."
+  if-group @6:1 "[if $joueur.pv >= $pv_max]\n    Alice: Je suis au maximum.\n[else]\n    Alice: Je suis blessée."
+    branch "$joueur.pv >= $pv_max" @6:1 "[if $joueur.pv >= $pv_max]\n    Alice: Je suis au maximum."
+      line Alice "Je suis au maximum." @7:5 "Alice: Je suis au maximum."
+    else
+      line Alice "Je suis blessée." @9:5 "Alice: Je suis blessée."
+  if-group @10:1 "[if $joueur.stats.force > 2]\n    Alice: Et je suis forte."
+    branch "$joueur.stats.force > 2" @10:1 "[if $joueur.stats.force > 2]\n    Alice: Et je suis forte."
+      line Alice "Et je suis forte." @11:5 "Alice: Et je suis forte."
+  set jumelle "{nom: \"Alice\", pv: 10, stats: {force: 3, agilite: 5}}" @12:1 "[let $jumelle = {nom: \"Alice\", pv: 10, stats: {force: 3, agilite: 5}}]"
+  if-group @13:1 "[if $joueur == $jumelle]\n    Alice: Nous sommes identiques."
+    branch "$joueur == $jumelle" @13:1 "[if $joueur == $jumelle]\n    Alice: Nous sommes identiques."
+      line Alice "Nous sommes identiques." @14:5 "Alice: Nous sommes identiques."
+  if-group @15:1 "[if $vide == $joueur]\n    Alice: Ceci ne devrait pas s'afficher."
+    branch "$vide == $joueur" @15:1 "[if $vide == $joueur]\n    Alice: Ceci ne devrait pas s'afficher."
+      line Alice "Ceci ne devrait pas s'afficher." @16:5 "Alice: Ceci ne devrait pas s'afficher."
+  set joueur.pv "$joueur.pv - 4" @17:1 "[let $joueur.pv = $joueur.pv - 4]"
+  set joueur.stats.force "$joueur.stats.force + 1" @18:1 "[let $joueur.stats.force = $joueur.stats.force + 1]"
+  set joueur.stats "{force: 9, agilite: 9}" @19:1 "[let $joueur.stats = {force: 9, agilite: 9}]"
+  line Alice "Me voilà changée." @20:1 "Alice: Me voilà changée."
+  command montrer ["$joueur.pv", "$joueur.stats.force"] @21:4 "montrer($joueur.pv, $joueur.stats.force)"
+  command montrer ["$joueur.nom", "$joueur.stats.agilite"] @22:4 "montrer($joueur.nom, $joueur.stats.agilite)"
+  command montrer ["{source: \"litteral\", valeur: $pv_max + 1}"] @23:4 "montrer({source: \"litteral\", valeur: $pv_max + 1})"
+
+== diagnostics ==
+(none)

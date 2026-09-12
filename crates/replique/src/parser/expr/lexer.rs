@@ -22,6 +22,9 @@ pub(crate) enum Token {
     /// Variable name: `$gold`, without its `$`.
     #[regex(r"\$[A-Za-z_][A-Za-z0-9_]*", |lex| lex.slice()[1..].to_owned())]
     Var(String),
+    /// Attr of Dictionnary: `.attr`
+    #[regex(r"\.[A-Za-z_][A-Za-z0-9_]*", |lex| lex.slice()[1..].to_owned())]
+    Attr(String),
     /// Function or command
     #[regex(r"[A-Za-z_][A-Za-z0-9_]*\(", |lex| {let s = lex.slice(); s[..s.len() - 1].to_owned()})]
     Func(String),
@@ -72,8 +75,14 @@ pub(crate) enum Token {
     LParen,
     #[token(")")]
     RParen,
+    #[token("{")]
+    LBrace,
+    #[token("}")]
+    RBrace,
     #[token(",")]
-    ArgSeparator,
+    Separator,
+    #[token(":")]
+    Colon,
 
     /// A string with no closing quote. Kept as a token so that what it holds
     /// is not read again as operators, and turned into a [`Token::Str`] plus a
@@ -90,6 +99,7 @@ impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Var(name) => write!(f, "${name}"),
+            Self::Attr(name) => write!(f, ".{name}"),
             Self::Func(name) => write!(f, "{name}("),
             Self::Ident(name) => f.write_str(name),
             Self::Float(n) => write!(f, "{n}"),
@@ -111,7 +121,10 @@ impl std::fmt::Display for Token {
             Self::Assign => f.write_str("="),
             Self::LParen => f.write_str("("),
             Self::RParen => f.write_str(")"),
-            Self::ArgSeparator => f.write_str(","),
+            Self::LBrace => f.write_str("{"),
+            Self::RBrace => f.write_str("}"),
+            Self::Separator => f.write_str(","),
+            Self::Colon => f.write_str(":"),
             // Neither reaches the parser; `lex` turns them into diagnostics.
             Self::UnclosedStr(s) => write!(f, "\"{s}"),
             Self::BareDollar => f.write_str("$"),
@@ -262,11 +275,41 @@ mod tests {
             [
                 Token::Func("command".into()),
                 Token::Ident("Alice".into()),
-                Token::ArgSeparator,
+                Token::Separator,
                 Token::Float(12.0),
-                Token::ArgSeparator,
+                Token::Separator,
                 Token::Var("var".into()),
                 Token::RParen,
+            ]
+        )
+    }
+
+    #[test]
+    fn a_var_with_attr_is_separated() {
+        assert_eq!(
+            toks("$var.attr1.attr2"),
+            [
+                Token::Var("var".into()),
+                Token::Attr("attr1".into()),
+                Token::Attr("attr2".into()),
+            ]
+        )
+    }
+
+    #[test]
+    fn a_litteral_dict_is_separated() {
+        assert_eq!(
+            toks("{name: \"Jean\", age: 10}"),
+            [
+                Token::LBrace,
+                Token::Ident("name".into()),
+                Token::Colon,
+                Token::Str("Jean".into()),
+                Token::Separator,
+                Token::Ident("age".into()),
+                Token::Colon,
+                Token::Int(10),
+                Token::RBrace,
             ]
         )
     }

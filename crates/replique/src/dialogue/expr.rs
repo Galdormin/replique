@@ -14,6 +14,12 @@ use crate::{
 pub(crate) enum Expr {
     Var(String),
     Litteral(Value),
+    /// To represent `{name: Alan, hp: $base + 2}` we need HashMap of [`Expr`]
+    LitteralDict(HashMap<String, Expr>),
+    Attr {
+        base: Box<Expr>,
+        attrs: Vec<String>,
+    },
     #[allow(unused)]
     Function {
         name: String,
@@ -43,7 +49,18 @@ impl TryFrom<parser::expr::Expr> for Expr {
                     .map(|a| a.value.try_into())
                     .collect::<Result<_, _>>()?,
             }),
+            parser::expr::Expr::Attr { base, attrs } => Ok(Expr::Attr {
+                base: Box::new(base.value.try_into()?),
+                attrs: attrs.into_iter().map(|s| s.value).collect(),
+            }),
             parser::expr::Expr::Litteral { value } => Ok(Expr::Litteral(value.into())),
+            parser::expr::Expr::LitteralDict(value) => {
+                let map: HashMap<String, Expr> = value
+                    .into_iter()
+                    .map(|(key, val)| val.value.try_into().map(|expr| (key.value, expr)))
+                    .collect::<Result<_, _>>()?;
+                Ok(Expr::LitteralDict(map))
+            }
             parser::expr::Expr::Unary { op, rhs } => Ok(Expr::Unary {
                 op: op.value,
                 rhs: Box::new(rhs.value.try_into()?),
@@ -81,6 +98,10 @@ pub enum EvalError {
     DivisionByZero,
     #[error("Integer overflow for operator {op}")]
     Overflow { op: String },
+    #[error("Dict has no attribute {0}")]
+    DictHasNoAttr(String),
+    #[error("Attribute {name} expected Dict and received {received}")]
+    AttrExpectedDict { name: String, received: String },
 }
 
 impl Expr {
@@ -91,7 +112,33 @@ impl Expr {
                 .get(name)
                 .cloned()
                 .ok_or_else(|| EvalError::UnknownVariable(name.clone())),
+            Expr::Attr { base, attrs } => {
+                let mut val = base.eval(vars)?;
+                for attr in attrs {
+                    // `eval` gives an owned value, so each step takes its
+                    // entry out of the map instead of cloning the subtree.
+                    val = match val {
+                        Value::Dict(mut map) => map
+                            .remove(attr)
+                            .ok_or_else(|| EvalError::DictHasNoAttr(attr.clone()))?,
+                        other => {
+                            return Err(EvalError::AttrExpectedDict {
+                                name: attr.clone(),
+                                received: other.vtype().to_string(),
+                            });
+                        }
+                    };
+                }
+                Ok(val)
+            }
             Expr::Litteral(value) => Ok(value.clone()),
+            Expr::LitteralDict(map) => {
+                let map = map
+                    .iter()
+                    .map(|(key, expr)| expr.eval(vars).map(|val| (key.clone(), val)))
+                    .collect::<Result<_, _>>()?;
+                Ok(Value::Dict(map))
+            }
             Expr::Function { name, .. } => Err(EvalError::UnknownFunction(name.clone())),
             Expr::Unary { op, rhs } => unary(*op, rhs.eval(vars)?),
             Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(vars)?, rhs.eval(vars)?),
@@ -230,6 +277,7 @@ fn equals(op: BinaryOp, lhs: Value, rhs: Value) -> Result<bool, EvalError> {
     match (lhs, rhs) {
         (Value::Bool(lhs), Value::Bool(rhs)) => Ok(lhs == rhs),
         (Value::String(lhs), Value::String(rhs)) => Ok(lhs == rhs),
+        (Value::Dict(lhs), Value::Dict(rhs)) => Ok(lhs == rhs),
         (lhs, rhs) if lhs.vtype().is_number() && rhs.vtype().is_number() => {
             Ok(match nums(op, lhs, rhs)? {
                 Nums::Ints(lhs, rhs) => lhs == rhs,
@@ -275,6 +323,70 @@ mod tests {
 
     fn str(text: &str) -> Value {
         Value::String(text.to_owned())
+    }
+
+    fn dict(entries: &[(&str, Value)]) -> Value {
+        Value::Dict(
+            entries
+                .iter()
+                .map(|(key, val)| ((*key).to_owned(), val.clone()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn two_dicts_are_equal_when_they_hold_the_same_entries() {
+        let left = dict(&[("hp", Value::Int(1)), ("name", str("Leon"))]);
+        let right = dict(&[("name", str("Leon")), ("hp", Value::Int(1))]);
+
+        assert_eq!(
+            bin(BinaryOp::Eq, left.clone(), right).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            bin(BinaryOp::Eq, left.clone(), dict(&[("hp", Value::Int(2))])).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            bin(BinaryOp::Ne, left.clone(), dict(&[])).unwrap(),
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn a_dict_compared_to_anything_else_is_a_type_mismatch() {
+        let left = dict(&[("hp", Value::Int(1))]);
+
+        assert!(matches!(
+            bin(BinaryOp::Eq, left.clone(), Value::Int(1)),
+            Err(EvalError::TypeMismatch { .. })
+        ));
+        assert!(matches!(
+            bin(BinaryOp::Add, left, Value::Int(1)),
+            Err(EvalError::TypeMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn an_attr_reads_its_way_down_the_dicts() {
+        let vars = HashMap::from([(
+            "player".to_owned(),
+            dict(&[("stats", dict(&[("hp", Value::Int(12))]))]),
+        )]);
+        let attr = |attrs: &[&str]| Expr::Attr {
+            base: Box::new(Expr::Var("player".to_owned())),
+            attrs: attrs.iter().map(|a| (*a).to_owned()).collect(),
+        };
+
+        assert_eq!(attr(&["stats", "hp"]).eval(&vars).unwrap(), Value::Int(12));
+        assert!(matches!(
+            attr(&["stats", "mp"]).eval(&vars),
+            Err(EvalError::DictHasNoAttr(_))
+        ));
+        assert!(matches!(
+            attr(&["stats", "hp", "deeper"]).eval(&vars),
+            Err(EvalError::AttrExpectedDict { .. })
+        ));
     }
 
     #[test]

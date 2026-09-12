@@ -1,0 +1,20 @@
+:= start
+[let $a = {pv: 1]
+Alice: un
+[let $b = {pv 1}]
+Alice: deux
+[let $c = {1: 2}]
+Alice: trois
+[let $d = {pv: }]
+Alice: quatre
+[let $e = {pv: 1 force: 2}]
+Alice: cinq
+[let $f = {pv: 1,}]
+Alice: six
+[let $g = {pv: 1, pv: 2}]
+Alice: sept
+[let $h = {pv: 1}.pv]
+Alice: huit
+[let $i = "texte".pv]
+Alice: neuf
+---

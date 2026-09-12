@@ -84,11 +84,16 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     at(src, stmt.span)
                 );
             }
-            StmtKind::Set { name, value } => {
+            StmtKind::Set { name, attrs, value } => {
                 let _ = writeln!(
                     out,
-                    "{pad}set {} {:?} {}",
+                    "{pad}set {}{} {:?} {}",
                     name.value,
+                    attrs
+                        .iter()
+                        .map(|s| format!(".{}", s.value))
+                        .collect::<Vec<_>>()
+                        .join(""),
                     &src.raw[value.span.start..value.span.end],
                     at(src, stmt.span)
                 );
@@ -174,6 +179,7 @@ corpus!(
     lets,
     conditions,
     else_branch,
+    dicts,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -191,4 +197,5 @@ corpus!(
     bad_commands,
     bad_lets,
     bad_conditions,
+    bad_dicts,
 );
