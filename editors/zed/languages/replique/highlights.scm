@@ -23,6 +23,8 @@
 ; Expressions
 (variable) @variable.special
 (function_name) @function.method
+(attribute) @property
+(dict_key) @property
 (string) @string
 (number) @number
 (boolean) @boolean
@@ -54,6 +56,11 @@
 [
   "("
   ")"
+  "{"
+  "}"
 ] @punctuation.bracket
 
-"," @punctuation.delimiter
+[
+  ","
+  ":"
+] @punctuation.delimiter
