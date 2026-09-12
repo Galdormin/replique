@@ -1,5 +1,35 @@
 [
   {
+    "type": "attribute_expression",
+    "named": true,
+    "fields": {
+      "attribute": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute",
+            "named": true
+          }
+        ]
+      },
+      "base": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "binary_expression",
     "named": true,
     "fields": {
@@ -71,6 +101,10 @@
       "required": true,
       "types": [
         {
+          "type": "attribute_expression",
+          "named": true
+        },
+        {
           "type": "binary_expression",
           "named": true
         },
@@ -80,6 +114,10 @@
         },
         {
           "type": "call",
+          "named": true
+        },
+        {
+          "type": "dict",
           "named": true
         },
         {
@@ -134,6 +172,10 @@
       "required": false,
       "types": [
         {
+          "type": "attribute_expression",
+          "named": true
+        },
+        {
           "type": "binary_expression",
           "named": true
         },
@@ -143,6 +185,10 @@
         },
         {
           "type": "call",
+          "named": true
+        },
+        {
+          "type": "dict",
           "named": true
         },
         {
@@ -205,13 +251,42 @@
     }
   },
   {
-    "type": "elif_statement",
+    "type": "dict",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "dict_entry",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "dict_entry",
     "named": true,
     "fields": {
-      "condition": {
+      "key": {
         "multiple": false,
         "required": true,
         "types": [
+          {
+            "type": "dict_key",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute_expression",
+            "named": true
+          },
           {
             "type": "binary_expression",
             "named": true
@@ -222,6 +297,81 @@
           },
           {
             "type": "call",
+            "named": true
+          },
+          {
+            "type": "dict",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "unary_expression",
+            "named": true
+          },
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "dict_key",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "elif_statement",
+    "named": true,
+    "fields": {
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute_expression",
+            "named": true
+          },
+          {
+            "type": "binary_expression",
+            "named": true
+          },
+          {
+            "type": "boolean",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "dict",
             "named": true
           },
           {
@@ -281,6 +431,10 @@
         "required": true,
         "types": [
           {
+            "type": "attribute_expression",
+            "named": true
+          },
+          {
             "type": "binary_expression",
             "named": true
           },
@@ -290,6 +444,10 @@
           },
           {
             "type": "call",
+            "named": true
+          },
+          {
+            "type": "dict",
             "named": true
           },
           {
@@ -340,6 +498,16 @@
     "type": "let_statement",
     "named": true,
     "fields": {
+      "attribute": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "attribute",
+            "named": true
+          }
+        ]
+      },
       "name": {
         "multiple": false,
         "required": true,
@@ -355,6 +523,10 @@
         "required": true,
         "types": [
           {
+            "type": "attribute_expression",
+            "named": true
+          },
+          {
             "type": "binary_expression",
             "named": true
           },
@@ -364,6 +536,10 @@
           },
           {
             "type": "call",
+            "named": true
+          },
+          {
+            "type": "dict",
             "named": true
           },
           {
@@ -434,6 +610,10 @@
       "required": true,
       "types": [
         {
+          "type": "attribute_expression",
+          "named": true
+        },
+        {
           "type": "binary_expression",
           "named": true
         },
@@ -443,6 +623,10 @@
         },
         {
           "type": "call",
+          "named": true
+        },
+        {
+          "type": "dict",
           "named": true
         },
         {
@@ -578,6 +762,10 @@
       "required": true,
       "types": [
         {
+          "type": "attribute_expression",
+          "named": true
+        },
+        {
           "type": "binary_expression",
           "named": true
         },
@@ -587,6 +775,10 @@
         },
         {
           "type": "call",
+          "named": true
+        },
+        {
+          "type": "dict",
           "named": true
         },
         {
@@ -661,6 +853,10 @@
     "named": false
   },
   {
+    "type": ":",
+    "named": false
+  },
+  {
     "type": ":=",
     "named": false
   },
@@ -721,6 +917,10 @@
     "named": false
   },
   {
+    "type": "attribute",
+    "named": true
+  },
+  {
     "type": "comment",
     "named": true,
     "extra": true
@@ -770,7 +970,15 @@
     "named": true
   },
   {
+    "type": "{",
+    "named": false
+  },
+  {
     "type": "||",
+    "named": false
+  },
+  {
+    "type": "}",
     "named": false
   }
 ]

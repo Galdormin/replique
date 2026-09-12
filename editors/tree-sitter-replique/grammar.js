@@ -67,11 +67,12 @@ module.exports = grammar({
     // >> play("bell", 0.5)
     command: ($) => seq(">>", field("call", $.call)),
 
-    // [let $gold = $gold + 1]
+    // [let $gold = $gold + 1] or [let $player.stats.hp = 1]
     let_statement: ($) =>
       seq(
         "[let",
         field("name", $.variable),
+        repeat(field("attribute", $.attribute)),
         "=",
         field("value", $._expression),
         "]",
@@ -118,6 +119,8 @@ module.exports = grammar({
         $.boolean,
         $.call,
         $.identifier,
+        $.dict,
+        $.attribute_expression,
         $.unary_expression,
         $.binary_expression,
         $.parenthesized_expression,
@@ -133,6 +136,35 @@ module.exports = grammar({
       ),
 
     function_name: ($) => $.identifier,
+
+    // {name: "Alice", stats: {hp: 10}}
+    // No trailing comma: the parser rejects it.
+    dict: ($) =>
+      seq(
+        "{",
+        optional(seq($.dict_entry, repeat(seq(",", $.dict_entry)))),
+        "}",
+      ),
+
+    dict_entry: ($) =>
+      seq(field("key", $.dict_key), ":", field("value", $._expression)),
+
+    dict_key: ($) => $.identifier,
+
+    // $player.stats.hp, read on a variable or on what a call gives back.
+    // Binds tighter than any operator, so `-$a.hp` negates the attribute.
+    attribute_expression: ($) =>
+      prec(
+        7,
+        seq(
+          field("base", choice($.variable, $.call)),
+          repeat1(field("attribute", $.attribute)),
+        ),
+      ),
+
+    // The name has to touch the `.`, the `.` itself does not have to touch
+    // the base: `$a .hp` reads the same as `$a.hp`.
+    attribute: (_) => token(/\.[A-Za-z_][A-Za-z0-9_]*/),
 
     parenthesized_expression: ($) => seq("(", $._expression, ")"),
 
