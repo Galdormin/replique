@@ -11,6 +11,7 @@ use crate::{
 };
 
 pub mod dialogue;
+pub mod host;
 pub mod parser;
 pub mod vm;
 
