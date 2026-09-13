@@ -7,6 +7,7 @@ use bevy::{
 use crate::{
     asset::{RepliqueDialogue, RepliqueDialogueLoader},
     command::DialogueCommandRegistry,
+    function::DialogueFunctionRegistry,
     message::{
         DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine, ResumeDialogue,
         StartDialogue,
@@ -29,7 +30,8 @@ impl Plugin for RepliquePLugin {
             (DialogueSystem::Runner, DialogueSystem::Commands).chain(),
         );
 
-        app.init_resource::<DialogueCommandRegistry>();
+        app.init_resource::<DialogueCommandRegistry>()
+            .init_resource::<DialogueFunctionRegistry>();
 
         app.init_asset::<RepliqueDialogue>()
             .init_asset_loader::<RepliqueDialogueLoader>();
@@ -44,6 +46,7 @@ impl Plugin for RepliquePLugin {
         app.add_systems(
             PostUpdate,
             (start_dialogue, resume_dialogue, start_pending_dialogue)
+                .chain()
                 .in_set(DialogueSystem::Runner),
         );
 

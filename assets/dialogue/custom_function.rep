@@ -1,0 +1,18 @@
+:= start
+[let $stat = get_stat(Alice)]
+Alice: I am carrying [$stat.gold] gold, and there are [party_size()] of us.
+[if $stat.hp > 10]
+    Alice: And I am in good enough shape to face the dragon.
+[else]
+    Alice: Sorry, I can't do that. I only have [$stat.hp] health points.
+Bob: [richest()] is the one paying tonight, then.
+Alice: Fine. Watch this.
+>> hurt(Alice, 8)
+Alice: ... that went badly.
+[let $stat = get_stat(Alice)]
+[if $stat.hp > 10]
+    Alice: And I am in good enough shape to face the dragon.
+[else]
+    Alice: Sorry, I can't do that. I only have [$stat.hp] health points.
+Bob: Let's go home.
+---

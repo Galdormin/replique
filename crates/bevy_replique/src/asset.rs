@@ -14,6 +14,12 @@ use replique::{
 pub struct RepliqueDialogue(Dialogue);
 
 impl RepliqueDialogue {
+    /// Wraps a dialogue that did not come from the loader.
+    #[cfg(test)]
+    pub(crate) fn new(dialogue: Dialogue) -> Self {
+        Self(dialogue)
+    }
+
     pub fn dialogue(&self) -> &Dialogue {
         &self.0
     }

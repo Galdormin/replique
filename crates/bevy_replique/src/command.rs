@@ -38,30 +38,9 @@ use crate::{
 /// Converts the call, then runs the system registered for it.
 type CommandRunner = Box<dyn Fn(&mut World, DialogueArgs) + Send + Sync>;
 
-/// The systems to call, by command name.
 #[derive(Resource, Default)]
-pub struct DialogueCommandRegistry {
+pub(crate) struct DialogueCommandRegistry {
     commands: HashMap<String, CommandRunner>,
-}
-
-impl DialogueCommandRegistry {
-    pub fn contains(&self, name: &str) -> bool {
-        self.commands.contains_key(name)
-    }
-
-    /// The system stays registered in the world, it is only unreachable from
-    /// the dialogue.
-    pub fn remove(&mut self, name: &str) -> bool {
-        self.commands.remove(name).is_some()
-    }
-
-    pub fn len(&self) -> usize {
-        self.commands.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
 }
 
 /// Registers the system to run for a `>>` command.
@@ -95,7 +74,7 @@ impl DialogueCommandAppExt for App {
 
         let label = name.clone();
         let run: CommandRunner = Box::new(move |world, args| {
-            let input = match T::from_command_args(args) {
+            let input = match T::from_dialogue_args(args) {
                 Ok(input) => input,
                 Err(err) => return error!("dialogue command `{label}`: {err}"),
             };
@@ -322,6 +301,12 @@ mod tests {
         call(&mut app, runner, "play", vec![]);
 
         assert_eq!(ran(&app), ["second"]);
-        assert_eq!(app.world().resource::<DialogueCommandRegistry>().len(), 1);
+        assert_eq!(
+            app.world()
+                .resource::<DialogueCommandRegistry>()
+                .commands
+                .len(),
+            1
+        );
     }
 }

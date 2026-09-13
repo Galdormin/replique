@@ -33,7 +33,7 @@
 //! which needs the entity it was called from. Implementing [`FromDialogueArgs`]
 //! yourself covers the rest: a call whose shape depends on its first argument.
 
-use std::any::type_name;
+use std::{any::type_name, collections::HashMap, fmt::Display};
 
 use bevy::ecs::entity::Entity;
 use replique::dialogue::Value;
@@ -334,7 +334,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 /// }
 ///
 /// impl FromDialogueArgs for Camera {
-///     fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+///     fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
 ///         // The index makes the log point at the argument that is wrong.
 ///         let bad = |index| DialogueArgsError::Argument { index, expected: "Camera" };
 ///
@@ -374,7 +374,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 /// struct Names(Vec<String>);
 ///
 /// impl FromDialogueArgs for Names {
-///     fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+///     fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
 ///         args.args
 ///             .into_iter()
 ///             .enumerate()
@@ -401,17 +401,17 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 /// A call that does not fit is logged and skipped, and the dialogue carries on:
 /// the error you return is what the log shows.
 pub trait FromDialogueArgs: Sized {
-    fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError>;
+    fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError>;
 }
 
 impl FromDialogueArgs for DialogueArgs {
-    fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+    fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
         Ok(args)
     }
 }
 
 impl FromDialogueArgs for () {
-    fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+    fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
         match args.len() {
             0 => Ok(()),
             got => Err(DialogueArgsError::TooManyArgs { expected: 0, got }),
@@ -428,11 +428,11 @@ fn short_type_name<T>() -> &'static str {
     }
 }
 
-macro_rules! impl_from_command_args {
+macro_rules! impl_from_dialogue_args {
     ($($T:ident),+) => {
         impl<$($T: FromMaybeValue),+> FromDialogueArgs for ($($T,)+) {
             #[allow(unused_assignments, non_snake_case)]
-            fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+            fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
                 let expected = [$(stringify!($T)),+].len();
                 if args.len() > expected {
                     return Err(DialogueArgsError::TooManyArgs { expected, got: args.len() });
@@ -453,28 +453,165 @@ macro_rules! impl_from_command_args {
     };
 }
 
-impl_from_command_args!(A);
-impl_from_command_args!(A, B);
-impl_from_command_args!(A, B, C);
-impl_from_command_args!(A, B, C, D);
-impl_from_command_args!(A, B, C, D, E);
-impl_from_command_args!(A, B, C, D, E, F);
-impl_from_command_args!(A, B, C, D, E, F, G);
-impl_from_command_args!(A, B, C, D, E, F, G, H);
+impl_from_dialogue_args!(A);
+impl_from_dialogue_args!(A, B);
+impl_from_dialogue_args!(A, B, C);
+impl_from_dialogue_args!(A, B, C, D);
+impl_from_dialogue_args!(A, B, C, D, E);
+impl_from_dialogue_args!(A, B, C, D, E, F);
+impl_from_dialogue_args!(A, B, C, D, E, F, G);
+impl_from_dialogue_args!(A, B, C, D, E, F, G, H);
 
-macro_rules! impl_from_command_args_single {
+macro_rules! impl_from_dialogue_args_single {
     ($($T:ty),*) => {$(
         impl FromDialogueArgs for $T {
-            fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-                <($T,)>::from_command_args(args).map(|(value,)| value)
+            fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+                <($T,)>::from_dialogue_args(args).map(|(value,)| value)
             }
         }
     )*};
 }
 
-impl_from_command_args_single!(
+impl_from_dialogue_args_single!(
     Value, String, bool, f32, f64, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize
 );
+
+/// A Rust type written back as the [`Value`] a dialogue reads.
+///
+/// The mirror of [`FromValue`], for the answer of a `[...]` function rather
+/// than the argument of a call. It cannot fail: a type that has no shape a
+/// dialogue can read simply does not implement it, and a function trying to
+/// answer one is a compile error rather than a dialogue that breaks down in
+/// front of the player. A function that may have *no answer to give* —
+/// a character who left the scene — says so with a `Result`, which
+/// [`IntoFunctionOutput`] takes care of.
+///
+/// Implemented for [`Value`] itself, [`bool`], [`String`], the numbers, and
+/// `HashMap<String, Value>`. Implementing it for a type of your own is what
+/// lets a function hand one back:
+///
+/// ```
+/// # use std::collections::HashMap;
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// /// Read by the dialogue as `$stat.hp` and `$stat.gold`.
+/// #[derive(Component, Clone, Copy)]
+/// struct Stats {
+///     hp: i64,
+///     gold: i64,
+/// }
+///
+/// impl IntoValue for Stats {
+///     fn into_value(self) -> Value {
+///         // A dict is how a value carries several named fields at once.
+///         Value::Dict(HashMap::from([
+///             ("hp".to_owned(), Value::Int(self.hp)),
+///             ("gold".to_owned(), Value::Int(self.gold)),
+///         ]))
+///     }
+/// }
+///
+/// /// `[let $stat = get_stat()]`, then `[if $stat.hp > 10]`
+/// fn get_stat(In(()): In<()>, stats: Single<&Stats>) -> Stats {
+///     **stats
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_function("get_stat", get_stat);
+/// #
+/// # let value = Stats { hp: 12, gold: 3 }.into_value();
+/// # assert!(matches!(value, Value::Dict(_)));
+/// ```
+///
+/// A number keeps the type it is written with, here as there: an `i64`
+/// becomes a [`Value::Int`] and an `f32` a [`Value::Float`], so a dialogue
+/// comparing the answer to `10` and one comparing it to `10.0` both say what
+/// they mean.
+pub trait IntoValue {
+    fn into_value(self) -> Value;
+}
+
+impl IntoValue for bool {
+    fn into_value(self) -> Value {
+        Value::Bool(self)
+    }
+}
+
+impl IntoValue for String {
+    fn into_value(self) -> Value {
+        Value::String(self)
+    }
+}
+
+/// The identity, for a function that builds its answer itself rather than
+/// letting a Rust type stand for it.
+impl IntoValue for Value {
+    fn into_value(self) -> Value {
+        self
+    }
+}
+
+/// A map of names becomes the dict a dialogue reads with `.attr`, which is how
+/// a function hands back a record rather than a single value.
+impl IntoValue for HashMap<String, Value> {
+    fn into_value(self) -> Value {
+        Value::Dict(self)
+    }
+}
+
+macro_rules! impl_from_value_float {
+    ($($T:ty),*) => {$(
+        impl IntoValue for $T {
+            fn into_value(self) -> Value {
+                Value::Float(self as f64)
+            }
+        }
+    )*};
+}
+
+impl_from_value_float!(f32, f64);
+
+macro_rules! impl_from_value_int {
+    ($($T:ty),*) => {$(
+        impl IntoValue for $T {
+            fn into_value(self) -> Value {
+                Value::Int(self as i64)
+            }
+        }
+    )*};
+}
+
+impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
+
+/// What a function answers, once the system that runs it has returned.
+///
+/// Two shapes fit, and `M` is only there to tell them apart — it is inferred,
+/// never written:
+///
+/// - any [`IntoValue`], for a function that always has an answer;
+/// - `Result<T, E>` where `T: IntoValue` and `E: Display`, for one that may
+///   not. The error reaches the log as the reason the call failed.
+pub trait IntoFunctionOutput<M> {
+    fn into_function_output(self) -> Result<Value, String>;
+}
+
+/// Marker of a function that always answers.
+pub struct PlainOutput;
+
+/// Marker of a function that answers a `Result`.
+pub struct ResultOutput;
+
+impl<T: IntoValue> IntoFunctionOutput<PlainOutput> for T {
+    fn into_function_output(self) -> Result<Value, String> {
+        Ok(self.into_value())
+    }
+}
+
+impl<T: IntoValue, E: Display> IntoFunctionOutput<ResultOutput> for Result<T, E> {
+    fn into_function_output(self) -> Result<Value, String> {
+        self.map(IntoValue::into_value)
+            .map_err(|err| err.to_string())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -495,7 +632,7 @@ mod tests {
     #[test]
     fn a_tuple_reads_one_argument_per_field() {
         assert_eq!(
-            <(String, f32, bool)>::from_command_args(args(vec![
+            <(String, f32, bool)>::from_dialogue_args(args(vec![
                 str("bell"),
                 Value::Float(0.5),
                 Value::Bool(true),
@@ -507,20 +644,20 @@ mod tests {
     #[test]
     fn a_single_argument_needs_no_tuple() {
         assert_eq!(
-            String::from_command_args(args(vec![str("hi")])),
+            String::from_dialogue_args(args(vec![str("hi")])),
             Ok("hi".to_owned())
         );
         assert_eq!(
-            bool::from_command_args(args(vec![Value::Bool(true)])),
+            bool::from_dialogue_args(args(vec![Value::Bool(true)])),
             Ok(true)
         );
     }
 
     #[test]
     fn the_empty_tuple_takes_no_argument_at_all() {
-        assert_eq!(<()>::from_command_args(args(vec![])), Ok(()));
+        assert_eq!(<()>::from_dialogue_args(args(vec![])), Ok(()));
         assert_eq!(
-            <()>::from_command_args(args(vec![Value::Bool(true)])),
+            <()>::from_dialogue_args(args(vec![Value::Bool(true)])),
             Err(DialogueArgsError::TooManyArgs {
                 expected: 0,
                 got: 1
@@ -533,15 +670,15 @@ mod tests {
     #[test]
     fn a_trailing_option_makes_an_argument_optional() {
         assert_eq!(
-            <(String, Option<f32>)>::from_command_args(args(vec![str("a")])),
+            <(String, Option<f32>)>::from_dialogue_args(args(vec![str("a")])),
             Ok(("a".to_owned(), None)),
         );
         assert_eq!(
-            <(String, Option<f32>)>::from_command_args(args(vec![str("b"), Value::Float(1.0)])),
+            <(String, Option<f32>)>::from_dialogue_args(args(vec![str("b"), Value::Float(1.0)])),
             Ok(("b".to_owned(), Some(1.0))),
         );
         assert_eq!(
-            <(String, Option<f32>)>::from_command_args(args(vec![str("c"), Value::Bool(true)])),
+            <(String, Option<f32>)>::from_dialogue_args(args(vec![str("c"), Value::Bool(true)])),
             Err(DialogueArgsError::Argument {
                 index: 1,
                 expected: "Option<f32>",
@@ -566,7 +703,7 @@ mod tests {
         assert_eq!(Value::from_value(str("a")), Some(str("a")));
 
         let call = args(vec![str("a"), Value::Int(1)]);
-        assert_eq!(DialogueArgs::from_command_args(call.clone()), Ok(call));
+        assert_eq!(DialogueArgs::from_dialogue_args(call.clone()), Ok(call));
     }
 
     #[test]
@@ -584,12 +721,12 @@ mod tests {
         }
 
         assert_eq!(
-            <(Direction, Option<f32>)>::from_command_args(args(vec![str("left")])),
+            <(Direction, Option<f32>)>::from_dialogue_args(args(vec![str("left")])),
             Ok((Direction("left".to_owned()), None)),
         );
         // A word the type does not know is a bad argument, not a panic.
         assert_eq!(
-            <(Direction,)>::from_command_args(args(vec![str("up")])),
+            <(Direction,)>::from_dialogue_args(args(vec![str("up")])),
             Err(DialogueArgsError::Argument {
                 index: 0,
                 expected: "Direction",
@@ -600,14 +737,14 @@ mod tests {
     #[test]
     fn error_on_an_argument_that_is_missing_or_of_the_wrong_type() {
         assert_eq!(
-            <(String, f32)>::from_command_args(args(vec![str("a")])),
+            <(String, f32)>::from_dialogue_args(args(vec![str("a")])),
             Err(DialogueArgsError::Argument {
                 index: 1,
                 expected: "f32",
             }),
         );
         assert_eq!(
-            <(String,)>::from_command_args(args(vec![Value::Bool(true)])),
+            <(String,)>::from_dialogue_args(args(vec![Value::Bool(true)])),
             Err(DialogueArgsError::Argument {
                 index: 0,
                 expected: "String",
@@ -618,7 +755,7 @@ mod tests {
     #[test]
     fn error_on_more_arguments_than_the_signature_holds() {
         assert_eq!(
-            <(String,)>::from_command_args(args(vec![str("a"), Value::Bool(true)])),
+            <(String,)>::from_dialogue_args(args(vec![str("a"), Value::Bool(true)])),
             Err(DialogueArgsError::TooManyArgs {
                 expected: 1,
                 got: 2

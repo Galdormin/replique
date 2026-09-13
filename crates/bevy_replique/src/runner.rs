@@ -3,19 +3,20 @@ use bevy::{
     ecs::{
         component::Component,
         entity::Entity,
-        message::{MessageReader, MessageWriter},
-        system::{Query, Res, SystemParam},
+        message::{MessageCursor, Messages},
+        system::Local,
+        world::World,
     },
     log::error,
-    prelude::Result,
 };
 use replique::{
-    dialogue::NodeName,
-    vm::{DialogueEvent, DialogueVm},
+    dialogue::{Dialogue, NodeName},
+    vm::{DialogueEvent, DialogueVm, VmError},
 };
 
 use crate::{
     asset::RepliqueDialogue,
+    function::DialogueHost,
     message::{
         DialogueChoice, DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine,
         ResumeDialogue, StartDialogue,
@@ -39,122 +40,356 @@ impl DialogueRunner {
     }
 }
 
-#[derive(SystemParam)]
-pub struct DialogueOut<'w> {
-    lines: MessageWriter<'w, DialogueLine>,
-    commands: MessageWriter<'w, DialogueCommand>,
-    choices: MessageWriter<'w, DialogueChoices>,
-    finished: MessageWriter<'w, DialogueFinished>,
-}
-
-impl DialogueOut<'_> {
-    fn emit(&mut self, runner: Entity, ev: DialogueEvent) {
-        match ev {
-            DialogueEvent::Say { speaker, text } => {
-                self.lines.write(DialogueLine {
-                    runner,
-                    speaker,
-                    text,
-                });
-            }
-            DialogueEvent::Command { name, args } => {
-                self.commands.write(DialogueCommand { runner, name, args });
-            }
-            DialogueEvent::Choices { choices } => {
-                self.choices.write(DialogueChoices {
-                    runner,
-                    choices: choices
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, text)| DialogueChoice { index, text })
-                        .collect(),
-                });
-            }
-            DialogueEvent::Finished => {
-                self.finished.write(DialogueFinished { runner });
-            }
+/// Hands the event the VM stopped on to whoever is listening.
+fn emit(world: &mut World, runner: Entity, event: DialogueEvent) {
+    match event {
+        DialogueEvent::Say { speaker, text } => {
+            world.write_message(DialogueLine {
+                runner,
+                speaker,
+                text,
+            });
+        }
+        DialogueEvent::Command { name, args } => {
+            world.write_message(DialogueCommand { runner, name, args });
+        }
+        DialogueEvent::Choices { choices } => {
+            world.write_message(DialogueChoices {
+                runner,
+                choices: choices
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, text)| DialogueChoice { index, text })
+                    .collect(),
+            });
+        }
+        DialogueEvent::Finished => {
+            world.write_message(DialogueFinished { runner });
         }
     }
 }
 
-pub(super) fn start_dialogue(
-    mut start_events: MessageReader<StartDialogue>,
-    dialogues: Res<Assets<RepliqueDialogue>>,
-    mut runners: Query<&mut DialogueRunner>,
-    mut dialogue_out: DialogueOut,
-) -> Result<()> {
-    for start in start_events.read() {
-        let Ok(mut runner) = runners.get_mut(start.runner) else {
+/// Runs the VM of `runner` with a [`DialogueHost`] bound to it, and writes the
+/// event it stopped on.
+fn run(
+    world: &mut World,
+    runner: Entity,
+    with: impl FnOnce(&mut DialogueVm, &mut DialogueHost) -> Result<DialogueEvent, VmError>,
+) {
+    let Some(mut component) = world.get_mut::<DialogueRunner>(runner) else {
+        error!("Try to run an unknown DialogueRunner");
+        return;
+    };
+    let mut vm = std::mem::take(&mut component.vm);
+
+    let result = {
+        let mut host = DialogueHost::new(world, runner);
+        with(&mut vm, &mut host)
+    };
+
+    if let Some(mut component) = world.get_mut::<DialogueRunner>(runner) {
+        component.vm = vm;
+    }
+
+    match result {
+        Ok(event) => emit(world, runner, event),
+        Err(err) => error!("{err}"),
+    }
+}
+
+/// The dialogue of `runner`, cloned, or `None` while its asset loads.
+fn loaded_dialogue(world: &World, runner: Entity) -> Option<Dialogue> {
+    let handle = &world.get::<DialogueRunner>(runner)?.dialogue;
+    let asset = world
+        .get_resource::<Assets<RepliqueDialogue>>()?
+        .get(handle.id())?;
+
+    Some(asset.dialogue().clone())
+}
+
+pub(super) fn start_dialogue(world: &mut World, mut cursor: Local<MessageCursor<StartDialogue>>) {
+    let pending: Vec<StartDialogue> = {
+        let Some(messages) = world.get_resource::<Messages<StartDialogue>>() else {
+            return;
+        };
+        cursor.read(messages).cloned().collect()
+    };
+
+    for start in pending {
+        if world.get::<DialogueRunner>(start.runner).is_none() {
             error!("Try to start an unknown DialogueRunner");
             continue;
-        };
+        }
 
-        let Some(dialogue) = dialogues.get(runner.dialogue.id()) else {
-            runner.pending_start = Some(start.node.clone().into());
+        let Some(dialogue) = loaded_dialogue(world, start.runner) else {
+            if let Some(mut component) = world.get_mut::<DialogueRunner>(start.runner) {
+                component.pending_start = Some(start.node.clone().into());
+            }
             continue;
         };
 
-        match runner.vm.start(dialogue.dialogue().clone(), &start.node) {
-            Ok(event) => {
-                dialogue_out.emit(start.runner, event);
-            }
-            Err(err) => error!("{}", err),
-        }
+        run(world, start.runner, |vm, host| {
+            vm.start_with(host, dialogue, &start.node)
+        });
     }
-
-    Ok(())
 }
 
-pub(super) fn start_pending_dialogue(
-    dialogues: Res<Assets<RepliqueDialogue>>,
-    runners: Query<(Entity, &mut DialogueRunner)>,
-    mut dialogue_out: DialogueOut,
-) -> Result<()> {
-    for (entity, mut runner) in runners {
-        if runner.pending_start.is_none() {
+pub(super) fn start_pending_dialogue(world: &mut World) {
+    let mut query = world.query::<(Entity, &DialogueRunner)>();
+    let waiting: Vec<Entity> = query
+        .iter(world)
+        .filter(|(_, runner)| runner.pending_start.is_some())
+        .map(|(entity, _)| entity)
+        .collect();
+
+    for entity in waiting {
+        let Some(dialogue) = loaded_dialogue(world, entity) else {
             continue;
         };
 
-        let Some(dialogue) = dialogues.get(runner.dialogue.id()) else {
+        let node = world
+            .get_mut::<DialogueRunner>(entity)
+            .and_then(|mut runner| runner.pending_start.take());
+        let Some(node) = node else {
             continue;
         };
 
-        let node = runner.pending_start.take().unwrap(); // Cannot fail
-        match runner.vm.start(dialogue.dialogue().clone(), &node) {
-            Ok(event) => {
-                dialogue_out.emit(entity, event);
-            }
-            Err(err) => error!("{}", err),
-        }
+        run(world, entity, |vm, host| {
+            vm.start_with(host, dialogue, node)
+        });
     }
-
-    Ok(())
 }
 
-pub(super) fn resume_dialogue(
-    mut resume_events: MessageReader<ResumeDialogue>,
-    dialogues: Res<Assets<RepliqueDialogue>>,
-    mut runners: Query<&mut DialogueRunner>,
-    mut dialogue_out: DialogueOut,
-) -> Result<()> {
-    for resume in resume_events.read() {
-        let Ok(mut runner) = runners.get_mut(resume.runner) else {
-            error!("Try to resume an unknown DialogueRunner");
-            continue;
+pub(super) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor<ResumeDialogue>>) {
+    let pending: Vec<ResumeDialogue> = {
+        let Some(messages) = world.get_resource::<Messages<ResumeDialogue>>() else {
+            return;
         };
+        cursor.read(messages).cloned().collect()
+    };
 
-        if dialogues.get(runner.dialogue.id()).is_none() {
-            error!("Try to resume a not loaded RepliqueDialogue");
-            continue;
-        }
+    for resume in pending {
+        run(world, resume.runner, |vm, host| {
+            vm.resume_with(host, resume.input.to_resume_event())
+        });
+    }
+}
 
-        match runner.vm.resume(resume.input.to_resume_event()) {
-            Ok(event) => {
-                dialogue_out.emit(resume.runner, event);
-            }
-            Err(err) => error!("{}", err),
-        }
+#[cfg(test)]
+mod tests {
+    use bevy::{MinimalPlugins, app::App, asset::AssetPlugin, prelude::*};
+    use replique::{RepliqueFile, parser::diagnostic::Color};
+
+    use super::*;
+    use crate::{function::DialogueFunctionAppExt, plugin::RepliquePLugin};
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePLugin));
+        app
     }
 
-    Ok(())
+    /// A dialogue asset built from source, without going through the loader.
+    fn add_dialogue(app: &mut App, src: &str) -> Handle<RepliqueDialogue> {
+        let file = RepliqueFile::from_source(src);
+        assert!(
+            !file.has_errors(),
+            "{}",
+            file.render_diagnostics(Color::Never)
+        );
+
+        app.world_mut()
+            .resource_mut::<Assets<RepliqueDialogue>>()
+            .add(RepliqueDialogue::new(file.dialogue.expect("a dialogue")))
+    }
+
+    fn spawn_runner(app: &mut App, dialogue: Handle<RepliqueDialogue>) -> Entity {
+        app.world_mut().spawn(DialogueRunner::new(dialogue)).id()
+    }
+
+    fn start(app: &mut App, runner: Entity) {
+        app.world_mut().write_message(StartDialogue {
+            runner,
+            node: "start".into(),
+        });
+        app.update();
+    }
+
+    /// The lines written this frame.
+    fn lines(app: &App) -> Vec<String> {
+        app.world()
+            .resource::<Messages<DialogueLine>>()
+            .iter_current_update_messages()
+            .map(|line| line.text.clone())
+            .collect()
+    }
+
+    /// `[upper("bob")]`, answered by a system that reads nothing.
+    fn upper(In(text): In<(String,)>) -> String {
+        text.0.to_uppercase()
+    }
+
+    #[test]
+    fn an_inline_expression_is_answered_by_a_registered_function() {
+        let mut app = app();
+        app.add_dialogue_function("upper", upper);
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start\nAlice: Bonjour [upper(\"bob\")] !\n---\n",
+        );
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), ["Bonjour BOB !"]);
+    }
+
+    /// A function may read the world, which is the whole point of registering
+    /// a system rather than a closure.
+    #[test]
+    fn a_function_reads_the_world_it_is_run_against() {
+        #[derive(Resource)]
+        struct Gold(i64);
+
+        fn gold(In(()): In<()>, gold: Res<Gold>) -> i64 {
+            gold.0
+        }
+
+        let mut app = app();
+        app.insert_resource(Gold(12))
+            .add_dialogue_function("gold", gold);
+        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [gold()] pièces\n---\n");
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), ["12 pièces"]);
+    }
+
+    /// The host answers for the whole run, so a function reached from a `[let]`
+    /// or a choice is called just the same.
+    #[test]
+    fn a_function_is_reachable_from_a_let_and_from_a_choice() {
+        let mut app = app();
+        app.add_dialogue_function("upper", upper);
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start\n[let $nom = upper(\"alice\")]\n-> Parler à [$nom]\n    Bob: Salut.\n---\n",
+        );
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        let choices: Vec<String> = app
+            .world()
+            .resource::<Messages<DialogueChoices>>()
+            .iter_current_update_messages()
+            .flat_map(|group| group.choices.iter().map(|c| c.text.clone()))
+            .collect();
+        assert_eq!(choices, ["Parler à ALICE"]);
+    }
+
+    /// A function nobody registered is an error, and the runner stays where it
+    /// was rather than skipping the line.
+    #[test]
+    fn an_unregistered_function_leaves_the_runner_where_it_was() {
+        let mut app = app();
+        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [upper(\"bob\")]\n---\n");
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), [] as [String; 0]);
+
+        // The VM is back in its component, untouched, so registering the
+        // function and asking again works.
+        app.add_dialogue_function("upper", upper);
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), ["BOB"]);
+    }
+
+    /// A start asked for before the asset is there is kept, and taken up by
+    /// `start_pending_dialogue` on a later frame — with a host, like any other.
+    #[test]
+    fn a_pending_start_is_taken_up_once_the_asset_is_there() {
+        let mut app = app();
+        app.add_dialogue_function("upper", upper);
+        let handle = add_dialogue(&mut app, ":= start\nAlice: [upper(\"bob\")]\n---\n");
+        let runner = spawn_runner(&mut app, handle.clone());
+
+        // Taken back out, so the runner holds a handle on an asset that is not
+        // there yet, as it would while the file loads.
+        let dialogue = app
+            .world_mut()
+            .resource_mut::<Assets<RepliqueDialogue>>()
+            .remove(handle.id())
+            .expect("the asset was just added");
+
+        start(&mut app, runner);
+        assert_eq!(lines(&app), [] as [String; 0]);
+        assert!(
+            app.world()
+                .get::<DialogueRunner>(runner)
+                .unwrap()
+                .pending_start
+                .is_some()
+        );
+
+        app.world_mut()
+            .resource_mut::<Assets<RepliqueDialogue>>()
+            .insert(handle.id(), dialogue)
+            .expect("the handle is still alive");
+        app.update();
+
+        assert_eq!(lines(&app), ["BOB"]);
+        assert!(
+            app.world()
+                .get::<DialogueRunner>(runner)
+                .unwrap()
+                .pending_start
+                .is_none()
+        );
+    }
+
+    /// A function that answers a `Result` fails the call with its own message
+    /// instead of putting something made up in the line.
+    #[test]
+    fn a_function_can_refuse_to_answer() {
+        fn stat(In((who,)): In<(String,)>) -> Result<i64, String> {
+            match who.as_str() {
+                "Alice" => Ok(14),
+                other => Err(format!("{other} is not on the scene")),
+            }
+        }
+
+        let mut app = app();
+        app.add_dialogue_function("stat", stat);
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start\nAlice: [stat(Alice)] and [stat(Carol)]\n---\n",
+        );
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), [] as [String; 0]);
+    }
+
+    /// The same function, when it does answer, reads as the value it holds.
+    #[test]
+    fn a_function_that_answers_a_result_reads_as_its_value() {
+        fn stat(In((_who,)): In<(String,)>) -> Result<i64, String> {
+            Ok(14)
+        }
+
+        let mut app = app();
+        app.add_dialogue_function("stat", stat);
+        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [stat(Alice)] hp\n---\n");
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), ["14 hp"]);
+    }
 }

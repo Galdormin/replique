@@ -95,7 +95,7 @@ impl FromValue for Character {
 struct CharactersParams(Vec<Character>);
 
 impl FromDialogueArgs for CharactersParams {
-    fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+    fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
         let characters = args
             .args
             .into_iter()
