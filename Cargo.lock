@@ -1384,8 +1384,18 @@ name = "bevy_replique"
 version = "0.0.0"
 dependencies = [
  "bevy",
+ "bevy_replique_derive",
  "replique",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "bevy_replique_derive"
+version = "0.0.0"
+dependencies = [
+ "bevy_replique",
+ "quote",
+ "syn 3.0.5",
 ]
 
 [[package]]

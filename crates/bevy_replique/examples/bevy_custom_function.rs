@@ -13,8 +13,6 @@
 //!
 //! [`add_dialogue_function`]: bevy_replique::function::DialogueFunctionAppExt::add_dialogue_function
 
-use std::collections::HashMap;
-
 use bevy::prelude::*;
 use bevy_replique::prelude::*;
 
@@ -42,7 +40,7 @@ fn main() {
 }
 
 /// Someone the dialogue can name, as a speaker or as an argument.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(RepliqueValue, Component, Debug, Clone, Copy, PartialEq, Eq)]
 enum Character {
     Alice,
     Bob,
@@ -57,39 +55,11 @@ impl Character {
     }
 }
 
-/// `get_stat(Alice)` and `>> hurt(Alice, 8)` both name a character this way.
-impl FromValue for Character {
-    fn from_value(value: Value) -> Option<Self> {
-        match String::from_value(value)?.as_str() {
-            "Alice" => Some(Self::Alice),
-            "Bob" => Some(Self::Bob),
-            _ => None,
-        }
-    }
-}
-
-impl IntoValue for Character {
-    fn into_value(self) -> Value {
-        Value::String(self.name().into())
-    }
-}
-
 /// What the dialogue reads as `$stat.hp` and `$stat.gold`.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(RepliqueValue, Component, Debug, Clone, Copy)]
 struct Stats {
     hp: i64,
     gold: i64,
-}
-
-impl IntoValue for Stats {
-    fn into_value(self) -> Value {
-        let dict = HashMap::from([
-            ("hp".to_owned(), Value::Int(self.hp)),
-            ("gold".to_owned(), Value::Int(self.gold)),
-        ]);
-
-        Value::Dict(dict)
-    }
 }
 
 /// `[let $stat = get_stat(Alice)]`

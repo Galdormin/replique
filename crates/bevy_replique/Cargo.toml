@@ -10,6 +10,7 @@ readme = "../../README.md"
 
 [dependencies]
 replique = { workspace = true }
+bevy_replique_derive = { workspace = true }
 
 bevy = { workspace = true }
 thiserror = { workspace = true }

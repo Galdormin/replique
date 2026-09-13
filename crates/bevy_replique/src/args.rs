@@ -33,7 +33,7 @@
 //! which needs the entity it was called from. Implementing [`FromDialogueArgs`]
 //! yourself covers the rest: a call whose shape depends on its first argument.
 
-use std::{any::type_name, collections::HashMap, fmt::Display};
+use std::{any::type_name, fmt::Display};
 
 use bevy::ecs::entity::Entity;
 use replique::dialogue::Value;
@@ -478,13 +478,8 @@ impl_from_dialogue_args_single!(
 
 /// A Rust type written back as the [`Value`] a dialogue reads.
 ///
-/// The mirror of [`FromValue`], for the answer of a `[...]` function rather
-/// than the argument of a call. It cannot fail: a type that has no shape a
-/// dialogue can read simply does not implement it, and a function trying to
-/// answer one is a compile error rather than a dialogue that breaks down in
-/// front of the player. A function that may have *no answer to give* —
-/// a character who left the scene — says so with a `Result`, which
-/// [`IntoFunctionOutput`] takes care of.
+/// The mirror of [`FromValue`], for the answer of a function rather
+/// than the argument of a call.
 ///
 /// Implemented for [`Value`] itself, [`bool`], [`String`], the numbers, and
 /// `HashMap<String, Value>`. Implementing it for a type of your own is what
@@ -521,11 +516,6 @@ impl_from_dialogue_args_single!(
 /// # let value = Stats { hp: 12, gold: 3 }.into_value();
 /// # assert!(matches!(value, Value::Dict(_)));
 /// ```
-///
-/// A number keeps the type it is written with, here as there: an `i64`
-/// becomes a [`Value::Int`] and an `f32` a [`Value::Float`], so a dialogue
-/// comparing the answer to `10` and one comparing it to `10.0` both say what
-/// they mean.
 pub trait IntoValue {
     fn into_value(self) -> Value;
 }
@@ -542,17 +532,13 @@ impl IntoValue for String {
     }
 }
 
-/// The identity, for a function that builds its answer itself rather than
-/// letting a Rust type stand for it.
 impl IntoValue for Value {
     fn into_value(self) -> Value {
         self
     }
 }
 
-/// A map of names becomes the dict a dialogue reads with `.attr`, which is how
-/// a function hands back a record rather than a single value.
-impl IntoValue for HashMap<String, Value> {
+impl IntoValue for std::collections::HashMap<String, Value> {
     fn into_value(self) -> Value {
         Value::Dict(self)
     }
@@ -584,8 +570,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 
 /// What a function answers, once the system that runs it has returned.
 ///
-/// Two shapes fit, and `M` is only there to tell them apart — it is inferred,
-/// never written:
+/// Two shapes fit, and `M` is only there to tell them apart.
 ///
 /// - any [`IntoValue`], for a function that always has an answer;
 /// - `Result<T, E>` where `T: IntoValue` and `E: Display`, for one that may
