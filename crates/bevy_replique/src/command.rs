@@ -134,17 +134,18 @@ pub(super) fn run_dialogue_commands(
     // get the `&mut World` they need. They cannot register a command in turn.
     world.resource_scope(|world, registry: Mut<DialogueCommandRegistry>| {
         for command in pending {
-            let Some(func) = registry.commands.get(&command.name) else {
-                continue;
-            };
-
-            func(
-                world,
-                DialogueArgs {
-                    runner: command.runner,
-                    args: command.args,
-                },
-            );
+            if let Some(func) = registry.commands.get(&command.name) {
+                func(
+                    world,
+                    DialogueArgs {
+                        runner: command.runner,
+                        args: command.args,
+                    },
+                );
+            } else {
+                // Command not found raise an error but resume the dialogue
+                error!("dialogue command {}: not found in registry", command.name);
+            }
 
             world.write_message(ResumeDialogue {
                 runner: command.runner,
@@ -160,7 +161,7 @@ mod tests {
     use replique::dialogue::Value;
 
     use super::*;
-    use crate::{args::DialogueArgsError, plugin::RepliquePLugin};
+    use crate::plugin::RepliquePLugin;
 
     /// What a test command writes down, to prove it ran and with what.
     #[derive(Resource, Default, Debug, PartialEq)]
@@ -225,73 +226,6 @@ mod tests {
     }
 
     #[test]
-    fn a_single_argument_needs_no_tuple() {
-        fn say(In(text): In<String>, mut ran: ResMut<Ran>) {
-            ran.0.push(text);
-        }
-
-        let mut app = app();
-        app.add_dialogue_command("say", say);
-        let runner = spawn_runner(&mut app);
-
-        call(&mut app, runner, "say", vec![Value::String("hi".into())]);
-
-        assert_eq!(ran(&app), ["hi"]);
-    }
-
-    #[test]
-    fn a_command_can_take_no_argument_at_all() {
-        fn fade(In(()): In<()>, mut ran: ResMut<Ran>) {
-            ran.0.push("fade".into());
-        }
-
-        let mut app = app();
-        app.add_dialogue_command("fade", fade);
-        let runner = spawn_runner(&mut app);
-
-        call(&mut app, runner, "fade", vec![]);
-
-        assert_eq!(ran(&app), ["fade"]);
-    }
-
-    #[test]
-    fn a_trailing_option_makes_an_argument_optional() {
-        fn play(In((sound, volume)): In<(String, Option<f32>)>, mut ran: ResMut<Ran>) {
-            ran.0.push(format!("{sound} {volume:?}"));
-        }
-
-        let mut app = app();
-        app.add_dialogue_command("play", play);
-        let runner = spawn_runner(&mut app);
-
-        call(&mut app, runner, "play", vec![Value::String("a".into())]);
-        call(
-            &mut app,
-            runner,
-            "play",
-            vec![Value::String("b".into()), Value::Float(1.0)],
-        );
-
-        assert_eq!(ran(&app), ["a None", "b Some(1.0)"]);
-    }
-
-    #[test]
-    fn an_integer_can_be_reads_as_a_float() {
-        fn wait(In(duration): In<f32>, mut ran: ResMut<Ran>) {
-            ran.0.push(duration.to_string());
-        }
-
-        let mut app = app();
-        app.add_dialogue_command("wait", wait);
-        let runner = spawn_runner(&mut app);
-
-        call(&mut app, runner, "wait", vec![Value::Float(3.0)]);
-        call(&mut app, runner, "wait", vec![Value::Int(3)]);
-
-        assert_eq!(ran(&app), ["3"]);
-    }
-
-    #[test]
     fn a_command_that_does_not_fit_its_signature_is_skipped_but_resumes() {
         fn play(In(_): In<(String, f32)>, mut ran: ResMut<Ran>) {
             ran.0.push("ran".into());
@@ -337,15 +271,14 @@ mod tests {
     }
 
     #[test]
-    fn an_unregistered_command_is_left_to_the_game() {
+    fn an_unregistered_command_resumes_tis_runner() {
         let mut app = app();
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "unknown", vec![]);
 
         assert_eq!(ran(&app), [] as [String; 0]);
-        // No resume: the dialogue waits for whoever reads the message.
-        assert_eq!(resumed(&app), []);
+        assert_eq!(resumed(&app), [runner]);
     }
 
     #[test]
@@ -390,38 +323,5 @@ mod tests {
 
         assert_eq!(ran(&app), ["second"]);
         assert_eq!(app.world().resource::<DialogueCommandRegistry>().len(), 1);
-    }
-
-    #[test]
-    fn a_call_is_checked_against_the_signature_it_targets() {
-        let args = |args: Vec<Value>| DialogueArgs {
-            runner: Entity::PLACEHOLDER,
-            args,
-        };
-
-        assert_eq!(
-            <(String, f32)>::from_command_args(args(vec![Value::String("a".into())])),
-            Err(DialogueArgsError::Argument {
-                index: 1,
-                expected: "f32"
-            })
-        );
-        assert_eq!(
-            <(String,)>::from_command_args(args(vec![
-                Value::String("a".into()),
-                Value::Bool(true)
-            ])),
-            Err(DialogueArgsError::TooManyArgs {
-                expected: 1,
-                got: 2
-            })
-        );
-        assert_eq!(
-            <()>::from_command_args(args(vec![Value::Bool(true)])),
-            Err(DialogueArgsError::TooManyArgs {
-                expected: 0,
-                got: 1
-            })
-        );
     }
 }

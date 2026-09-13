@@ -1,4 +1,37 @@
+//! Reading the arguments of a call into the types a system asks for.
 //!
+//! A dialogue writes values, not Rust types: `>> play("bell", 0.5)` reaches
+//! this crate as a `Vec<Value>`, and the system registered for `play` would
+//! rather be handed a `String` and an `f32`. That translation is what this
+//! module is, and it is shared by everything a dialogue can call.
+//!
+//! Three traits, layered:
+//!
+//! - [`FromValue`] reads *one* value into one type. This is the one to
+//!   implement to teach the dialogue a vocabulary of your own, e.g. a
+//!   `Direction`, a `Mood`.
+//! - [`FromMaybeValue`] is [`FromValue`] plus the absence of an argument.
+//!   Nothing to implement: every [`FromValue`] gets it, and refuses an
+//!   argument that is not there. A trailing [`Option`] is what accepts it.
+//! - [`FromDialogueArgs`] reads the *whole* call. It is what a system input
+//!   is, and it is implemented for tuples of up to eight [`FromMaybeValue`],
+//!   for a single one, and for `()`.
+//!
+//! ```
+//! # use bevy::prelude::*;
+//! # use bevy_replique::prelude::*;
+//! /// `>> play("bell")` and `>> play("bell", 0.5)` both fit.
+//! fn play(In((sound, volume)): In<(String, Option<f32>)>) {
+//!     let _ = (sound, volume.unwrap_or(1.0));
+//! }
+//! # let mut app = App::new();
+//! # app.add_dialogue_command("play", play);
+//! ```
+//!
+//! Two ways out when a tuple cannot say it. [`DialogueArgs`] takes the call
+//! raw, arguments left as [`Value`], for a system whose arity is not fixed or
+//! which needs the entity it was called from. Implementing [`FromDialogueArgs`]
+//! yourself covers the rest: a call whose shape depends on its first argument.
 
 use std::any::type_name;
 
@@ -140,6 +173,59 @@ impl DialogueArgs {
 /// # );
 /// # assert_eq!(Direction::from_value(Value::String("up".into())), None);
 /// ```
+/// **A dict argument.** `>> show({name: "Alice", hp: 12})` arrives as a
+/// [`Value::Dict`], a map of names to values, which is how a call carries a
+/// record rather than a flat list. There is no blanket reading of a dict into
+/// a struct — which field goes where is yours to say — so a type that wants
+/// one takes the map apart itself:
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// #[derive(Debug, PartialEq)]
+/// struct Stats {
+///     name: String,
+///     hp: i64,
+/// }
+///
+/// impl FromValue for Stats {
+///     fn from_value(value: Value) -> Option<Self> {
+///         let Value::Dict(mut fields) = value else {
+///             return None;
+///         };
+///
+///         // A key the dict does not hold is a missing field, and refuses
+///         // the whole argument rather than standing in for a default.
+///         Some(Self {
+///             name: String::from_value(fields.remove("name")?)?,
+///             hp: i64::from_value(fields.remove("hp")?)?,
+///         })
+///     }
+/// }
+///
+/// /// `>> show({name: "Alice", hp: 12})`
+/// ///
+/// /// A type of your own reaches a system inside a tuple, `(Stats,)` for a
+/// /// single one: [`FromDialogueArgs`] is implemented for the types of this
+/// /// crate, and for tuples of anything that reads a value.
+/// fn show(In((stats,)): In<(Stats,)>) {
+///     let _ = stats;
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_command("show", show);
+/// #
+/// # let dict = Value::Dict(std::collections::HashMap::from([
+/// #     ("name".to_owned(), Value::String("Alice".into())),
+/// #     ("hp".to_owned(), Value::Int(12)),
+/// # ]));
+/// # assert_eq!(
+/// #     Stats::from_value(dict),
+/// #     Some(Stats { name: "Alice".to_owned(), hp: 12 }),
+/// # );
+/// # assert_eq!(Stats::from_value(Value::Int(1)), None);
+/// ```
+///
+/// The `bevy_custom_command` example reads one this way.
 pub trait FromValue: Sized {
     fn from_value(value: Value) -> Option<Self>;
 }
@@ -275,6 +361,43 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 /// # app.add_dialogue_command("camera", move_camera);
 /// ```
 ///
+/// **A call whose arity is not fixed.** A tuple says how many arguments there
+/// are, so it cannot take `>> add_scene(Alice)` and `>> add_scene(Alice, Bob)`
+/// both. Reading [`args`](DialogueArgs::args) yourself can: the values come in
+/// the order the writer put them, and [`FromValue`] reads each one, the index
+/// of the loop being what makes the error point at the argument at fault.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// /// `>> add_scene(Alice)` and `>> add_scene(Alice, Bob)` both fit.
+/// struct Names(Vec<String>);
+///
+/// impl FromDialogueArgs for Names {
+///     fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
+///         args.args
+///             .into_iter()
+///             .enumerate()
+///             .map(|(index, value)| {
+///                 String::from_value(value)
+///                     .ok_or(DialogueArgsError::Argument { index, expected: "a name" })
+///             })
+///             .collect::<Result<Vec<_>, _>>()
+///             .map(Self)
+///     }
+/// }
+///
+/// fn add_scene(In(Names(names)): In<Names>) {
+///     let _ = names;
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_command("add_scene", add_scene);
+/// ```
+///
+/// [`DialogueArgs`] itself is the same thing without the typing, when the
+/// values are better read one by one inside the system. The
+/// `bevy_custom_command` example holds a full version of both.
+///
 /// A call that does not fit is logged and skipped, and the dialogue carries on:
 /// the error you return is what the log shows.
 pub trait FromDialogueArgs: Sized {
@@ -352,3 +475,154 @@ macro_rules! impl_from_command_args_single {
 impl_from_command_args_single!(
     Value, String, bool, f32, f64, i8, i16, i32, i64, isize, u8, u16, u32, u64, usize
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A call of `args`, from a runner no test here looks at.
+    fn args(args: Vec<Value>) -> DialogueArgs {
+        DialogueArgs {
+            runner: Entity::PLACEHOLDER,
+            args,
+        }
+    }
+
+    fn str(text: &str) -> Value {
+        Value::String(text.to_owned())
+    }
+
+    #[test]
+    fn a_tuple_reads_one_argument_per_field() {
+        assert_eq!(
+            <(String, f32, bool)>::from_command_args(args(vec![
+                str("bell"),
+                Value::Float(0.5),
+                Value::Bool(true),
+            ])),
+            Ok(("bell".to_owned(), 0.5, true)),
+        );
+    }
+
+    #[test]
+    fn a_single_argument_needs_no_tuple() {
+        assert_eq!(
+            String::from_command_args(args(vec![str("hi")])),
+            Ok("hi".to_owned())
+        );
+        assert_eq!(
+            bool::from_command_args(args(vec![Value::Bool(true)])),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn the_empty_tuple_takes_no_argument_at_all() {
+        assert_eq!(<()>::from_command_args(args(vec![])), Ok(()));
+        assert_eq!(
+            <()>::from_command_args(args(vec![Value::Bool(true)])),
+            Err(DialogueArgsError::TooManyArgs {
+                expected: 0,
+                got: 1
+            }),
+        );
+    }
+
+    /// An absent argument is the only thing an [`Option`] adds: a present one
+    /// that does not fit is still an error.
+    #[test]
+    fn a_trailing_option_makes_an_argument_optional() {
+        assert_eq!(
+            <(String, Option<f32>)>::from_command_args(args(vec![str("a")])),
+            Ok(("a".to_owned(), None)),
+        );
+        assert_eq!(
+            <(String, Option<f32>)>::from_command_args(args(vec![str("b"), Value::Float(1.0)])),
+            Ok(("b".to_owned(), Some(1.0))),
+        );
+        assert_eq!(
+            <(String, Option<f32>)>::from_command_args(args(vec![str("c"), Value::Bool(true)])),
+            Err(DialogueArgsError::Argument {
+                index: 1,
+                expected: "Option<f32>",
+            }),
+        );
+    }
+
+    /// A number is read as the type it is written with: `3` and `3.0` are not
+    /// the same argument, and neither is silently turned into the other.
+    #[test]
+    fn a_number_keeps_the_type_it_was_written_with() {
+        assert_eq!(f32::from_value(Value::Float(3.0)), Some(3.0));
+        assert_eq!(f32::from_value(Value::Int(3)), None);
+        assert_eq!(i64::from_value(Value::Int(3)), Some(3));
+        assert_eq!(i64::from_value(Value::Float(3.0)), None);
+    }
+
+    /// `Value` and `DialogueArgs` are conversions too, the identity ones: they
+    /// are how a command takes what the dialogue wrote, untouched.
+    #[test]
+    fn a_raw_value_passes_through_untouched() {
+        assert_eq!(Value::from_value(str("a")), Some(str("a")));
+
+        let call = args(vec![str("a"), Value::Int(1)]);
+        assert_eq!(DialogueArgs::from_command_args(call.clone()), Ok(call));
+    }
+
+    #[test]
+    fn a_type_of_your_own_composes_into_a_tuple() {
+        #[derive(Debug, PartialEq)]
+        struct Direction(String);
+
+        impl FromValue for Direction {
+            fn from_value(value: Value) -> Option<Self> {
+                match String::from_value(value)?.as_str() {
+                    word @ ("left" | "right") => Some(Self(word.to_owned())),
+                    _ => None,
+                }
+            }
+        }
+
+        assert_eq!(
+            <(Direction, Option<f32>)>::from_command_args(args(vec![str("left")])),
+            Ok((Direction("left".to_owned()), None)),
+        );
+        // A word the type does not know is a bad argument, not a panic.
+        assert_eq!(
+            <(Direction,)>::from_command_args(args(vec![str("up")])),
+            Err(DialogueArgsError::Argument {
+                index: 0,
+                expected: "Direction",
+            }),
+        );
+    }
+
+    #[test]
+    fn error_on_an_argument_that_is_missing_or_of_the_wrong_type() {
+        assert_eq!(
+            <(String, f32)>::from_command_args(args(vec![str("a")])),
+            Err(DialogueArgsError::Argument {
+                index: 1,
+                expected: "f32",
+            }),
+        );
+        assert_eq!(
+            <(String,)>::from_command_args(args(vec![Value::Bool(true)])),
+            Err(DialogueArgsError::Argument {
+                index: 0,
+                expected: "String",
+            }),
+        );
+    }
+
+    #[test]
+    fn error_on_more_arguments_than_the_signature_holds() {
+        assert_eq!(
+            <(String,)>::from_command_args(args(vec![str("a"), Value::Bool(true)])),
+            Err(DialogueArgsError::TooManyArgs {
+                expected: 1,
+                got: 2
+            }),
+        );
+    }
+}
