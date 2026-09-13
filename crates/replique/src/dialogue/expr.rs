@@ -153,9 +153,7 @@ impl Expr {
                     .map(|a| a.eval(ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                ctx.host
-                    .call(name, args)
-                    .map_err(|e| EvalError::HostError(e))
+                ctx.host.call(name, args).map_err(EvalError::HostError)
             }
             Expr::Unary { op, rhs } => unary(*op, rhs.eval(ctx)?),
             Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(ctx)?, rhs.eval(ctx)?),

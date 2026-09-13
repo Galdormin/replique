@@ -94,19 +94,19 @@ impl FromValue for Character {
 /// `>> add_scene(Caroline)` both fit.
 struct CharactersParams(Vec<Character>);
 
-impl FromCommandArgs for CharactersParams {
-    fn from_command_args(args: CommandArgs) -> Result<Self, CommandArgsError> {
+impl FromDialogueArgs for CharactersParams {
+    fn from_command_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
         let characters = args
             .args
             .into_iter()
             .enumerate()
             .map(|(i, v)| {
-                Character::from_value(v).ok_or(CommandArgsError::Argument {
+                Character::from_value(v).ok_or(DialogueArgsError::Argument {
                     index: i,
                     expected: "Alice, Bob or Caroline",
                 })
             })
-            .collect::<Result<Vec<_>, CommandArgsError>>()?;
+            .collect::<Result<Vec<_>, DialogueArgsError>>()?;
 
         Ok(Self(characters))
     }

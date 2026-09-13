@@ -1,4 +1,4 @@
-//! Define the [`RespliqueHost`] trait for the Virtual Machine to execute
+//! Define the [`RepliqueHost`] trait for the Virtual Machine to execute
 //! function on the host side without sending events.
 
 use thiserror::Error;
