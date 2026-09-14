@@ -10,7 +10,9 @@ use crate::{
     },
 };
 
+pub mod builtins;
 pub mod dialogue;
+pub mod host;
 pub mod parser;
 pub mod vm;
 

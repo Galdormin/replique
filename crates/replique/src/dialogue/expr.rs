@@ -4,10 +4,12 @@ use thiserror::Error;
 
 use crate::{
     dialogue::{Value, ValueType, builder::BuildError},
+    host::{HostError, RepliqueHost},
     parser::{
         self,
         expr::{BinaryOp, UnaryOp},
     },
+    vm::EvalCtx,
 };
 
 #[derive(Debug, Clone)]
@@ -102,18 +104,24 @@ pub enum EvalError {
     DictHasNoAttr(String),
     #[error("Attribute {name} expected Dict and received {received}")]
     AttrExpectedDict { name: String, received: String },
+    #[error("Host error: {0}")]
+    HostError(#[from] HostError),
 }
 
 impl Expr {
     /// Value of the expression, reading the variables it names from `vars`.
-    pub(crate) fn eval(&self, vars: &HashMap<String, Value>) -> Result<Value, EvalError> {
+    pub(crate) fn eval<H: RepliqueHost>(
+        &self,
+        ctx: &mut EvalCtx<'_, H>,
+    ) -> Result<Value, EvalError> {
         match self {
-            Expr::Var(name) => vars
+            Expr::Var(name) => ctx
+                .vars
                 .get(name)
                 .cloned()
                 .ok_or_else(|| EvalError::UnknownVariable(name.clone())),
             Expr::Attr { base, attrs } => {
-                let mut val = base.eval(vars)?;
+                let mut val = base.eval(ctx)?;
                 for attr in attrs {
                     // `eval` gives an owned value, so each step takes its
                     // entry out of the map instead of cloning the subtree.
@@ -135,13 +143,20 @@ impl Expr {
             Expr::LitteralDict(map) => {
                 let map = map
                     .iter()
-                    .map(|(key, expr)| expr.eval(vars).map(|val| (key.clone(), val)))
+                    .map(|(key, expr)| expr.eval(ctx).map(|val| (key.clone(), val)))
                     .collect::<Result<_, _>>()?;
                 Ok(Value::Dict(map))
             }
-            Expr::Function { name, .. } => Err(EvalError::UnknownFunction(name.clone())),
-            Expr::Unary { op, rhs } => unary(*op, rhs.eval(vars)?),
-            Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(vars)?, rhs.eval(vars)?),
+            Expr::Function { name, args } => {
+                let args = args
+                    .iter()
+                    .map(|a| a.eval(ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                ctx.call(name, args).map_err(EvalError::HostError)
+            }
+            Expr::Unary { op, rhs } => unary(*op, rhs.eval(ctx)?),
+            Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(ctx)?, rhs.eval(ctx)?),
         }
     }
 }
@@ -315,10 +330,34 @@ fn as_bool(op: BinaryOp, value: Value) -> Result<bool, EvalError> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        host::{NoHost, test::TestHost},
+        vm::VarStore,
+    };
+
     use super::*;
 
     fn bin(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
         binary(op, lhs, rhs)
+    }
+
+    /// Value of `expr` with no variable, against the host it is given.
+    fn eval_with<H: RepliqueHost>(expr: &Expr, host: &mut H) -> Result<Value, EvalError> {
+        expr.eval(&mut EvalCtx {
+            vars: &VarStore::default(),
+            host,
+        })
+    }
+
+    fn call(name: &str, args: Vec<Expr>) -> Expr {
+        Expr::Function {
+            name: name.to_owned(),
+            args,
+        }
+    }
+
+    fn int(value: i64) -> Expr {
+        Expr::Litteral(Value::Int(value))
     }
 
     fn str(text: &str) -> Value {
@@ -332,6 +371,125 @@ mod tests {
                 .map(|(key, val)| ((*key).to_owned(), val.clone()))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn a_function_is_answered_by_the_host() {
+        let mut host = TestHost::default();
+
+        let value = eval_with(
+            &call("upper_new", vec![Expr::Litteral(str("alice"))]),
+            &mut host,
+        );
+
+        assert_eq!(value.unwrap(), str("ALICE"));
+        assert_eq!(host.calls, [("upper_new".to_owned(), vec![str("alice")])]);
+    }
+
+    /// The host is handed values, never expressions: what an argument is made
+    /// of is settled before the call.
+    #[test]
+    fn the_arguments_of_a_function_reach_the_host_evaluated() {
+        let mut host = TestHost::default();
+        let arg = Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(int(1)),
+            rhs: Box::new(int(2)),
+        };
+
+        let value = eval_with(&call("double", vec![arg]), &mut host);
+
+        assert_eq!(value.unwrap(), Value::Int(6));
+        assert_eq!(host.calls, [("double".to_owned(), vec![Value::Int(3)])]);
+    }
+
+    #[test]
+    fn a_function_is_a_value_like_any_other() {
+        let mut host = TestHost::default();
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            lhs: Box::new(call("double", vec![call("double", vec![int(2)])])),
+            rhs: Box::new(int(1)),
+        };
+
+        assert_eq!(eval_with(&expr, &mut host).unwrap(), Value::Int(9));
+        // The inner call runs first, and its result is what the outer one gets.
+        assert_eq!(
+            host.calls,
+            [
+                ("double".to_owned(), vec![Value::Int(2)]),
+                ("double".to_owned(), vec![Value::Int(4)]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_variable_reaches_the_host_as_its_value() {
+        let vars = VarStore::new(HashMap::from([("name".to_owned(), str("bob"))]));
+        let mut host = TestHost::default();
+
+        let value = call("upper", vec![Expr::Var("name".to_owned())]).eval(&mut EvalCtx {
+            vars: &vars,
+            host: &mut host,
+        });
+
+        assert_eq!(value.unwrap(), str("BOB"));
+    }
+
+    #[test]
+    fn error_on_a_function_the_host_does_not_know() {
+        let mut host = TestHost::default();
+
+        let err = eval_with(&call("unknown", vec![]), &mut host).unwrap_err();
+
+        assert!(matches!(
+            err,
+            EvalError::HostError(HostError::UnknownFunction(name)) if name == "unknown"
+        ));
+    }
+
+    /// A host that refuses the call is not a panic and not a `None`: the
+    /// expression fails, and the VM turns that into an error of its own.
+    #[test]
+    fn error_on_a_function_the_host_refuses_to_answer() {
+        let mut host = TestHost::default();
+
+        let err = eval_with(&call("boom", vec![]), &mut host).unwrap_err();
+
+        assert!(matches!(
+            err,
+            EvalError::HostError(HostError::Failed { ref name, .. }) if name == "boom"
+        ));
+    }
+
+    #[test]
+    fn no_host_answers_no_function_at_all() {
+        let err = eval_with(
+            &call("upper_new", vec![Expr::Litteral(str("A"))]),
+            &mut NoHost,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            EvalError::HostError(HostError::UnknownFunction(_))
+        ));
+    }
+
+    /// An argument that does not evaluate stops the call before it is made,
+    /// so the host never sees a half-built one.
+    #[test]
+    fn an_argument_that_does_not_evaluate_never_reaches_the_host() {
+        let mut host = TestHost::default();
+
+        let err = eval_with(
+            &call("double", vec![Expr::Var("missing".to_owned())]),
+            &mut host,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, EvalError::UnknownVariable(_)));
+        assert_eq!(host.called(), [] as [&str; 0]);
     }
 
     #[test]
@@ -373,18 +531,25 @@ mod tests {
             "player".to_owned(),
             dict(&[("stats", dict(&[("hp", Value::Int(12))]))]),
         )]);
+        let mut ctx = EvalCtx {
+            vars: &VarStore::new(vars),
+            host: &mut NoHost,
+        };
         let attr = |attrs: &[&str]| Expr::Attr {
             base: Box::new(Expr::Var("player".to_owned())),
             attrs: attrs.iter().map(|a| (*a).to_owned()).collect(),
         };
 
-        assert_eq!(attr(&["stats", "hp"]).eval(&vars).unwrap(), Value::Int(12));
+        assert_eq!(
+            attr(&["stats", "hp"]).eval(&mut ctx).unwrap(),
+            Value::Int(12)
+        );
         assert!(matches!(
-            attr(&["stats", "mp"]).eval(&vars),
+            attr(&["stats", "mp"]).eval(&mut ctx),
             Err(EvalError::DictHasNoAttr(_))
         ));
         assert!(matches!(
-            attr(&["stats", "hp", "deeper"]).eval(&vars),
+            attr(&["stats", "hp", "deeper"]).eval(&mut ctx),
             Err(EvalError::AttrExpectedDict { .. })
         ));
     }

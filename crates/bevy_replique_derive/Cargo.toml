@@ -1,0 +1,19 @@
+[package]
+name = "bevy_replique_derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "3", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+bevy_replique = { path = "../bevy_replique" }
+bevy = { workspace = true }

@@ -40,9 +40,13 @@ use std::collections::HashMap;
 
 use thiserror::Error;
 
-use crate::dialogue::{
-    Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, TextPart, Value,
-    expr::{EvalError, Expr},
+use crate::{
+    builtins::lookup,
+    dialogue::{
+        Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, TextPart, Value,
+        expr::{EvalError, Expr},
+    },
+    host::{HostError, NoHost, RepliqueHost},
 };
 
 /// How many steps a single [`DialogueVm::start`] or [`DialogueVm::resume`] may
@@ -131,6 +135,56 @@ struct Cursor {
     step: StepId,
 }
 
+/// Context of evaluation for [`crate::dialogue::expr::Expr`].
+pub(crate) struct EvalCtx<'a, H: RepliqueHost> {
+    pub vars: &'a VarStore,
+    pub host: &'a mut H,
+}
+
+impl<'a, H> EvalCtx<'a, H>
+where
+    H: RepliqueHost,
+{
+    pub fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, HostError> {
+        if let Some(builtin) = lookup(name) {
+            return builtin.call(args).map_err(|e| HostError::BuiltinFailed {
+                name: name.into(),
+                message: e.to_string(),
+            });
+        }
+
+        self.host.call(name, args)
+    }
+}
+
+// Store of variable
+#[derive(Default)]
+pub struct VarStore {
+    vars: HashMap<String, Value>,
+}
+
+impl VarStore {
+    pub fn new(vars: HashMap<String, Value>) -> Self {
+        Self { vars }
+    }
+
+    pub fn vars(&self) -> &HashMap<String, Value> {
+        &self.vars
+    }
+
+    pub fn insert(&mut self, name: String, val: Value) {
+        self.vars.insert(name, val);
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Value> {
+        self.vars.get(name)
+    }
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Value> {
+        self.vars.get_mut(name)
+    }
+}
+
 /// Everything that can go wrong while running a [`Dialogue`].
 ///
 /// A failed call never changes the state of the VM. After an error it is still
@@ -192,18 +246,30 @@ enum VmState {
 pub struct DialogueVm {
     dialogue: Option<Dialogue>,
     state: VmState,
-    vars: HashMap<String, Value>,
+    vars: VarStore,
 }
 
 impl DialogueVm {
+    /// Same as [`DialogueVm::start_with`] but with [`NoHost`] as host.
+    pub fn start(
+        &mut self,
+        dialogue: Dialogue,
+        name: impl Into<NodeName>,
+    ) -> Result<DialogueEvent, VmError> {
+        self.start_with(&mut NoHost, dialogue, name)
+    }
+
     /// Start `dialogue` at the node `name` and run up to the first event.
+    ///
+    /// The caller give a [`RepliqueHost`] to give access to its registered functions.
     ///
     /// Fails with [`VmError::DialogueNotFinished`] if a run is still in
     /// progress, and with [`VmError::DialogueNodeNotFound`] if the node does
     /// not exist. Starting again after [`DialogueEvent::Finished`] is fine and
     /// resets the VM.
-    pub fn start(
+    pub fn start_with<H: RepliqueHost>(
         &mut self,
+        host: &mut H,
         dialogue: Dialogue,
         name: impl Into<NodeName>,
     ) -> Result<DialogueEvent, VmError> {
@@ -214,20 +280,33 @@ impl DialogueVm {
         self.dialogue = Some(dialogue);
 
         let cursor = self.get_cursor_for_node(name.into())?;
-        self.run(cursor)
+        self.run(host, cursor)
     }
 
     /// Every variable the dialogue has written, and its value.
-    pub fn vars(&self) -> &HashMap<String, Value> {
+    /// Use for tests
+    #[allow(unused)]
+    pub fn vars(&self) -> &VarStore {
         &self.vars
+    }
+
+    /// Same as [`DialogueVm::resume_with`] but with [`NoHost`] as host.
+    pub fn resume(&mut self, resume: ResumeEvent) -> Result<DialogueEvent, VmError> {
+        self.resume_with(&mut NoHost, resume)
     }
 
     /// Answer the last [`DialogueEvent`] and run up to the next one.
     ///
+    /// The caller give a [`RepliqueHost`] to give access to its registered functions.
+    ///
     /// `resume` must match the event the VM emitted, see [`ResumeEvent`]. On
     /// error the VM stays suspended where it was, so a wrong or out of range
     /// answer can just be retried.
-    pub fn resume(&mut self, resume: ResumeEvent) -> Result<DialogueEvent, VmError> {
+    pub fn resume_with<H: RepliqueHost>(
+        &mut self,
+        host: &mut H,
+        resume: ResumeEvent,
+    ) -> Result<DialogueEvent, VmError> {
         let (mut cursor, next) = match &self.state {
             VmState::Suspended { cursor, at } => (cursor.clone(), at.resolve(&resume)?),
             VmState::NotStarted => return Err(VmError::DialogueNotStarted),
@@ -235,18 +314,22 @@ impl DialogueVm {
         };
 
         cursor.step = next;
-        self.run(cursor)
+        self.run(host, cursor)
     }
 
     /// Walk steps from `cursor` until one of them needs the host, saving where
     /// to resume from and returning the matching event.
-    fn run(&mut self, mut cursor: Cursor) -> Result<DialogueEvent, VmError> {
+    fn run<H: RepliqueHost>(
+        &mut self,
+        host: &mut H,
+        mut cursor: Cursor,
+    ) -> Result<DialogueEvent, VmError> {
         for _ in 0..MAX_STEPS {
             match self.get_step_at(&cursor)?.kind.clone() {
                 StepKind::Say { line, next } => {
                     // Rendered before the state moves: an inline expression
                     // that does not evaluate must leave the VM where it was.
-                    let text = self.render_text(line.text)?;
+                    let text = self.render_text(host, line.text)?;
 
                     self.state = VmState::Suspended {
                         cursor,
@@ -263,7 +346,7 @@ impl DialogueVm {
                     let args = command
                         .args
                         .into_iter()
-                        .map(|e| self.eval(e))
+                        .map(|e| self.eval(host, e))
                         .collect::<Result<_, _>>()?;
 
                     self.state = VmState::Suspended {
@@ -281,7 +364,7 @@ impl DialogueVm {
                     value,
                     next,
                 } => {
-                    let value = self.eval(value)?;
+                    let value = self.eval(host, value)?;
                     if attrs.is_empty() {
                         self.vars.insert(name, value);
                     } else {
@@ -294,7 +377,7 @@ impl DialogueVm {
                     then,
                     otherwise,
                 } => {
-                    cursor.step = match self.eval(condition)? {
+                    cursor.step = match self.eval(host, condition)? {
                         Value::Bool(true) => then,
                         Value::Bool(false) => otherwise,
                         other => {
@@ -306,7 +389,7 @@ impl DialogueVm {
                     let targets = choices.iter().map(|c| c.target).collect();
                     let texts = choices
                         .into_iter()
-                        .map(|c| self.render_text(c.text))
+                        .map(|c| self.render_text(host, c.text))
                         .collect::<Result<_, _>>()?;
 
                     self.state = VmState::Suspended {
@@ -354,20 +437,34 @@ impl DialogueVm {
         Ok(self.get_node_at(cursor)?.get_step(&cursor.step))
     }
 
-    /// Eval an Expr
-    fn eval(&self, expr: Expr) -> Result<Value, EvalError> {
-        expr.eval(&self.vars)
+    /// Eval an Expr against the variables of the VM and the functions `host`
+    /// answers for.
+    ///
+    /// The [`EvalCtx`] is built here and dies with the call, so the borrow it
+    /// takes on the variables never outlives one expression.
+    fn eval<H: RepliqueHost>(&self, host: &mut H, expr: Expr) -> Result<Value, EvalError> {
+        expr.eval(&mut EvalCtx {
+            vars: &self.vars,
+            host,
+        })
     }
 
     /// The text a line or a choice reads as, with every inline expression
     /// replaced by what it evaluates to.
-    fn render_text(&self, parts: Vec<TextPart>) -> Result<String, EvalError> {
+    fn render_text<H: RepliqueHost>(
+        &self,
+        host: &mut H,
+        parts: Vec<TextPart>,
+    ) -> Result<String, EvalError> {
         let mut out = String::new();
 
         for part in parts {
             match part {
                 TextPart::Text(text) => out.push_str(&text),
-                TextPart::Expression(expr) => out.push_str(&self.eval(expr)?.to_string()),
+                TextPart::Expression(expr) => {
+                    let val = self.eval(host, expr)?;
+                    out.push_str(&val.to_string())
+                }
             }
         }
 
@@ -410,6 +507,7 @@ mod tests {
     use super::*;
     use crate::dialogue::builder::DialogueNodeBuilder;
     use crate::dialogue::{ChoiceDef, Command, TextLine, expr::Expr};
+    use crate::host::{HostError, test::TestHost};
     use crate::parser::expr::BinaryOp;
 
     fn lit(value: i64) -> Expr {
@@ -1001,5 +1099,187 @@ mod tests {
         let err = expect_err(vm.start(dialogue, "loop"));
 
         assert!(matches!(err, VmError::StepLimitExceeded));
+    }
+
+    /// A `Say` whose text is `prefix` followed by what `expr` evaluates to.
+    fn host_line(prefix: &str, expr: Expr, next: StepId) -> StepKind {
+        StepKind::Say {
+            line: TextLine {
+                speaker: None,
+                text: vec![TextPart::Text(prefix.into()), TextPart::Expression(expr)],
+            },
+            next,
+        }
+    }
+
+    fn call(name: &str, args: Vec<Expr>) -> Expr {
+        Expr::Function {
+            name: name.to_owned(),
+            args,
+        }
+    }
+
+    #[test]
+    fn an_inline_expression_asks_the_host_for_its_functions() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let l0 = b.push(host_line(
+            "Bonjour ",
+            call(
+                "upper_new",
+                vec![Expr::Litteral(Value::String("alice".into()))],
+            ),
+            end,
+        ));
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), l0).unwrap()]);
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        let event = vm.start_with(&mut host, dialogue, "start").unwrap();
+
+        assert_eq!(expect_line(event).1, "Bonjour ALICE");
+        assert_eq!(host.called(), ["upper_new"]);
+    }
+
+    /// The host is only reached when a step names a function: a dialogue that
+    /// calls none never touches it.
+    #[test]
+    fn a_dialogue_without_a_function_never_calls_the_host() {
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        vm.start_with(&mut host, linear_dialogue(), "start")
+            .unwrap();
+        vm.resume_with(&mut host, ResumeEvent::Advance).unwrap();
+
+        assert_eq!(host.called(), [] as [&str; 0]);
+    }
+
+    #[test]
+    fn an_assignment_can_hold_what_the_host_answered() {
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+        let dialogue = set_dialogue(call("double", vec![lit(21)]));
+
+        let event = vm.start_with(&mut host, dialogue, "start").unwrap();
+
+        assert_eq!(expect_command(event).1, [Value::Int(42)]);
+        assert_eq!(vm.vars().get("gold"), Some(&Value::Int(42)));
+    }
+
+    /// A function sees the variables as they are when it is called, not as
+    /// they were written: the assignment above it has already run.
+    #[test]
+    fn a_function_is_given_the_variables_the_dialogue_wrote() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let say = b.push(host_line(
+            "",
+            call("double", vec![Expr::Var("gold".into())]),
+            end,
+        ));
+        let set = b.push(StepKind::Set {
+            name: "gold".into(),
+            attrs: vec![],
+            value: lit(4),
+            next: say,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), set).unwrap()]);
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        let event = vm.start_with(&mut host, dialogue, "start").unwrap();
+
+        assert_eq!(expect_line(event).1, "8");
+        assert_eq!(host.calls, [("double".to_owned(), vec![Value::Int(4)])]);
+    }
+
+    #[test]
+    fn a_branch_can_turn_on_what_the_host_answers() {
+        for (n, expected) in [(4, "oui"), (3, "non")] {
+            let mut vm = DialogueVm::default();
+            let mut host = TestHost::default();
+            let dialogue = branch_dialogue(call("is_even", vec![lit(n)]));
+
+            let event = vm.start_with(&mut host, dialogue, "start").unwrap();
+
+            assert_eq!(expect_line(event).1, expected, "is_even({n})");
+        }
+    }
+
+    #[test]
+    fn a_command_argument_can_come_from_the_host() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let cmd = b.push(StepKind::Command {
+            command: Command {
+                name: "show".into(),
+                args: vec![call("double", vec![lit(3)]), lit(1)],
+            },
+            next: end,
+        });
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), cmd).unwrap()]);
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        let (name, args) = expect_command(vm.start_with(&mut host, dialogue, "start").unwrap());
+
+        assert_eq!(name, "show");
+        assert_eq!(args, [Value::Int(6), Value::Int(1)]);
+    }
+
+    /// A call the host refuses is an error like any other: the VM stays
+    /// suspended on the step before it, so the same answer can be given again
+    /// to a host that does know the function.
+    #[test]
+    fn a_host_that_refuses_a_call_leaves_the_vm_where_it_was() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let l1 = b.push(host_line(
+            "",
+            call(
+                "upper_new",
+                vec![Expr::Litteral(Value::String("alice".into()))],
+            ),
+            end,
+        ));
+        let l0 = b.push(line(None, "before", l1));
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), l0).unwrap()]);
+        let mut vm = DialogueVm::default();
+
+        assert_eq!(
+            expect_line(vm.start(dialogue, "start").unwrap()).1,
+            "before"
+        );
+
+        // `NoHost` answers no function at all.
+        let err = expect_err(vm.resume(ResumeEvent::Advance));
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::HostError(HostError::UnknownFunction(name)))
+                if name == "upper_new"
+        ));
+
+        let mut host = TestHost::default();
+        let event = vm.resume_with(&mut host, ResumeEvent::Advance).unwrap();
+        assert_eq!(expect_line(event).1, "ALICE");
+    }
+
+    #[test]
+    fn error_on_a_function_the_host_fails_to_run() {
+        let mut b = DialogueNodeBuilder::default();
+        let end = b.push(StepKind::End);
+        let l0 = b.push(host_line("", call("boom", vec![]), end));
+        let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), l0).unwrap()]);
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        let err = expect_err(vm.start_with(&mut host, dialogue, "start"));
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::HostError(HostError::Failed { ref name, .. }))
+                if name == "boom"
+        ));
     }
 }

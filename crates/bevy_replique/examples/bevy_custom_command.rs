@@ -6,9 +6,9 @@
 //!
 //! It is also where a custom argument type earns its keep. [`Character`]
 //! implements [`FromValue`], so a word the cast does not know is refused
-//! before it reaches the game, and [`CharactersParams`] implements
-//! [`FromCommandArgs`] so that a command takes as many characters as the
-//! writer put.
+//! before it reaches the game, and [`CharactersParams`] derives
+//! [`RepliqueArgs`] so that a command takes as many characters as the writer
+//! put.
 //!
 //! Space advances a line. This dialogue has no choice to make.
 //!
@@ -33,8 +33,8 @@ fn main() {
             ..default()
         }))
         .add_plugins(RepliquePLugin)
-        .add_dialogue_command("add_scene", add_scene)
-        .add_dialogue_command("remove_scene", remove_scene)
+        .add_dialogue_command(add_scene)
+        .add_dialogue_command(remove_scene)
         .init_resource::<Waiting>()
         .add_systems(Startup, setup)
         .add_systems(Update, (show_line, show_finished, handle_input))
@@ -42,7 +42,7 @@ fn main() {
 }
 
 /// Represents character in the dialogue
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(RepliqueValue, Component, Debug, Clone, Copy, PartialEq, Eq)]
 enum Character {
     Alice,
     Bob,
@@ -78,41 +78,17 @@ impl Character {
     }
 }
 
-impl FromValue for Character {
-    fn from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::String(name) => Self::from_name(&name),
-            _ => None,
-        }
-    }
-}
-
 /// As many characters as the command was given.
 ///
 /// A tuple would pin their number down, which is what makes this one worth a
-/// [`FromCommandArgs`] of its own: `>> add_scene(Alice, Bob)` and
-/// `>> add_scene(Caroline)` both fit.
-struct CharactersParams(Vec<Character>);
-
-impl FromCommandArgs for CharactersParams {
-    fn from_command_args(args: CommandArgs) -> Result<Self, CommandArgsError> {
-        let characters = args
-            .args
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| {
-                Character::from_value(v).ok_or(CommandArgsError::Argument {
-                    index: i,
-                    expected: "Alice, Bob or Caroline",
-                })
-            })
-            .collect::<Result<Vec<_>, CommandArgsError>>()?;
-
-        Ok(Self(characters))
-    }
-}
+/// [`FromDialogueArgs`] of its own: `>> add_scene(Alice, Bob)` and
+/// `>> add_scene(Caroline)` both fit. `#[variadic]` is what the derive reads
+/// as "every argument left".
+#[derive(RepliqueArgs)]
+struct CharactersParams(#[variadic] Vec<Character>);
 
 /// `>> add_scene(Alice, Bob)`
+#[replique_command]
 fn add_scene(
     In(CharactersParams(characters)): In<CharactersParams>,
     mut commands: Commands,
@@ -158,6 +134,7 @@ fn add_scene(
 }
 
 /// `>> remove_scene(Alice)`
+#[replique_command]
 fn remove_scene(
     In(CharactersParams(characters)): In<CharactersParams>,
     mut commands: Commands,

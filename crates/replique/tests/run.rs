@@ -68,6 +68,7 @@ fn trace(src: &str, entry: &str) -> String {
 fn render_writes(out: &mut String, known: &mut BTreeMap<String, Value>, vm: &DialogueVm) {
     let now: BTreeMap<_, _> = vm
         .vars()
+        .vars()
         .iter()
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
