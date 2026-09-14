@@ -67,9 +67,11 @@ use bevy::{
         system::{In, IntoSystem, ReadOnlySystem},
         world::{Mut, World},
     },
+    log::error,
     platform::collections::HashMap,
 };
 use replique::{
+    builtins::lookup,
     dialogue::Value,
     host::{HostError, RepliqueHost},
 };
@@ -129,6 +131,12 @@ impl DialogueFunctionAppExt for App {
         S::System: ReadOnlySystem,
     {
         let name = name.into();
+
+        if lookup(&name).is_some() {
+            error!("A builtin function with the name {name} already exists.");
+            return self;
+        }
+
         let world = self.world_mut();
         let id = world.register_system(system);
 

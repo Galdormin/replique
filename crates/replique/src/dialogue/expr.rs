@@ -153,7 +153,7 @@ impl Expr {
                     .map(|a| a.eval(ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                ctx.host.call(name, args).map_err(EvalError::HostError)
+                ctx.call(name, args).map_err(EvalError::HostError)
             }
             Expr::Unary { op, rhs } => unary(*op, rhs.eval(ctx)?),
             Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(ctx)?, rhs.eval(ctx)?),
@@ -378,12 +378,12 @@ mod tests {
         let mut host = TestHost::default();
 
         let value = eval_with(
-            &call("upper", vec![Expr::Litteral(str("alice"))]),
+            &call("upper_new", vec![Expr::Litteral(str("alice"))]),
             &mut host,
         );
 
         assert_eq!(value.unwrap(), str("ALICE"));
-        assert_eq!(host.calls, [("upper".to_owned(), vec![str("alice")])]);
+        assert_eq!(host.calls, [("upper_new".to_owned(), vec![str("alice")])]);
     }
 
     /// The host is handed values, never expressions: what an argument is made
@@ -464,8 +464,11 @@ mod tests {
 
     #[test]
     fn no_host_answers_no_function_at_all() {
-        let err =
-            eval_with(&call("upper", vec![Expr::Litteral(str("a"))]), &mut NoHost).unwrap_err();
+        let err = eval_with(
+            &call("upper_new", vec![Expr::Litteral(str("A"))]),
+            &mut NoHost,
+        )
+        .unwrap_err();
 
         assert!(matches!(
             err,

@@ -41,11 +41,12 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::{
+    builtins::lookup,
     dialogue::{
         Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, TextPart, Value,
         expr::{EvalError, Expr},
     },
-    host::{NoHost, RepliqueHost},
+    host::{HostError, NoHost, RepliqueHost},
 };
 
 /// How many steps a single [`DialogueVm::start`] or [`DialogueVm::resume`] may
@@ -138,6 +139,22 @@ struct Cursor {
 pub(crate) struct EvalCtx<'a, H: RepliqueHost> {
     pub vars: &'a VarStore,
     pub host: &'a mut H,
+}
+
+impl<'a, H> EvalCtx<'a, H>
+where
+    H: RepliqueHost,
+{
+    pub fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, HostError> {
+        if let Some(builtin) = lookup(name) {
+            return builtin.call(args).map_err(|e| HostError::BuiltinFailed {
+                name: name.into(),
+                message: e.to_string(),
+            });
+        }
+
+        self.host.call(name, args)
+    }
 }
 
 // Store of variable
@@ -1108,7 +1125,10 @@ mod tests {
         let end = b.push(StepKind::End);
         let l0 = b.push(host_line(
             "Bonjour ",
-            call("upper", vec![Expr::Litteral(Value::String("alice".into()))]),
+            call(
+                "upper_new",
+                vec![Expr::Litteral(Value::String("alice".into()))],
+            ),
             end,
         ));
         let dialogue = Dialogue::new(vec![b.build(NodeName::new("start"), l0).unwrap()]);
@@ -1118,7 +1138,7 @@ mod tests {
         let event = vm.start_with(&mut host, dialogue, "start").unwrap();
 
         assert_eq!(expect_line(event).1, "Bonjour ALICE");
-        assert_eq!(host.called(), ["upper"]);
+        assert_eq!(host.called(), ["upper_new"]);
     }
 
     /// The host is only reached when a step names a function: a dialogue that
@@ -1217,7 +1237,10 @@ mod tests {
         let end = b.push(StepKind::End);
         let l1 = b.push(host_line(
             "",
-            call("upper", vec![Expr::Litteral(Value::String("ok".into()))]),
+            call(
+                "upper_new",
+                vec![Expr::Litteral(Value::String("alice".into()))],
+            ),
             end,
         ));
         let l0 = b.push(line(None, "before", l1));
@@ -1234,12 +1257,12 @@ mod tests {
         assert!(matches!(
             err,
             VmError::ExprEvalError(EvalError::HostError(HostError::UnknownFunction(name)))
-                if name == "upper"
+                if name == "upper_new"
         ));
 
         let mut host = TestHost::default();
         let event = vm.resume_with(&mut host, ResumeEvent::Advance).unwrap();
-        assert_eq!(expect_line(event).1, "OK");
+        assert_eq!(expect_line(event).1, "ALICE");
     }
 
     #[test]

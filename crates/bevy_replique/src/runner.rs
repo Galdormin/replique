@@ -224,18 +224,18 @@ mod tests {
             .collect()
     }
 
-    /// `[upper("bob")]`, answered by a system that reads nothing.
-    fn upper(In(text): In<(String,)>) -> String {
+    /// `[upper_new("bob")]`, answered by a system that reads nothing.
+    fn upper_new(In(text): In<(String,)>) -> String {
         text.0.to_uppercase()
     }
 
     #[test]
     fn an_inline_expression_is_answered_by_a_registered_function() {
         let mut app = app();
-        app.add_dialogue_function("upper", upper);
+        app.add_dialogue_function("upper_new", upper_new);
         let dialogue = add_dialogue(
             &mut app,
-            ":= start\nAlice: Bonjour [upper(\"bob\")] !\n---\n",
+            ":= start\nAlice: Bonjour [upper_new(\"bob\")] !\n---\n",
         );
         let runner = spawn_runner(&mut app, dialogue);
 
@@ -271,10 +271,10 @@ mod tests {
     #[test]
     fn a_function_is_reachable_from_a_let_and_from_a_choice() {
         let mut app = app();
-        app.add_dialogue_function("upper", upper);
+        app.add_dialogue_function("upper_new", upper_new);
         let dialogue = add_dialogue(
             &mut app,
-            ":= start\n[let $nom = upper(\"alice\")]\n-> Parler à [$nom]\n    Bob: Salut.\n---\n",
+            ":= start\n[let $nom = upper_new(\"alice\")]\n-> Parler à [$nom]\n    Bob: Salut.\n---\n",
         );
         let runner = spawn_runner(&mut app, dialogue);
 
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn an_unregistered_function_leaves_the_runner_where_it_was() {
         let mut app = app();
-        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [upper(\"bob\")]\n---\n");
+        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [upper_new(\"bob\")]\n---\n");
         let runner = spawn_runner(&mut app, dialogue);
 
         start(&mut app, runner);
@@ -303,7 +303,7 @@ mod tests {
 
         // The VM is back in its component, untouched, so registering the
         // function and asking again works.
-        app.add_dialogue_function("upper", upper);
+        app.add_dialogue_function("upper_new", upper_new);
         start(&mut app, runner);
 
         assert_eq!(lines(&app), ["BOB"]);
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn a_pending_start_is_taken_up_once_the_asset_is_there() {
         let mut app = app();
-        app.add_dialogue_function("upper", upper);
-        let handle = add_dialogue(&mut app, ":= start\nAlice: [upper(\"bob\")]\n---\n");
+        app.add_dialogue_function("upper_new", upper_new);
+        let handle = add_dialogue(&mut app, ":= start\nAlice: [upper_new(\"bob\")]\n---\n");
         let runner = spawn_runner(&mut app, handle.clone());
 
         // Taken back out, so the runner holds a handle on an asset that is not

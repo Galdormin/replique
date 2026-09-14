@@ -11,6 +11,8 @@ pub enum HostError {
     UnknownFunction(String),
     #[error("`{name}`: `{message}`")]
     Failed { name: String, message: String },
+    #[error("builtin `{name}`: `{message}`")]
+    BuiltinFailed { name: String, message: String },
 }
 
 pub trait RepliqueHost {
@@ -61,7 +63,7 @@ pub(crate) mod test {
             };
 
             match name {
-                "upper" => match args.as_slice() {
+                "upper_new" => match args.as_slice() {
                     [Value::String(text)] => Ok(Value::String(text.to_uppercase())),
                     _ => Err(failed("expected one string")),
                 },
