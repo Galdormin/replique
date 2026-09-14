@@ -9,7 +9,8 @@ use syn::{Data, DeriveInput, parse_macro_input};
 mod value;
 
 /// Implements both `FromValue` and `IntoValue`, so the type is a vocabulary the
-/// dialogue and the game share.
+/// dialogue and the game share. A value that does not fit is refused with a
+/// `ValueError` saying what was expected and, inside a dict, under which key.
 ///
 /// Three shapes derive it, each mapping to one way of writing a value:
 ///
@@ -40,8 +41,19 @@ mod value;
 /// assert_eq!(Character::Alice.into_value(), Value::String("Alice".to_owned()));
 /// assert_eq!(Character::JeanMichel.into_value(), Value::String("Jean-Michel".to_owned()));
 ///
-/// // A word the enum does not know is refused, spelling included.
-/// assert_eq!(Character::from_value(Value::String("JeanMichel".to_owned())), None);
+/// assert_eq!(
+///     Character::from_value(Value::String("Jean-Michel".to_owned())),
+///     Ok(Character::JeanMichel),
+/// );
+///
+/// // A word the enum does not know is refused, spelling included, and the
+/// // log names the word that was written.
+/// assert_eq!(
+///     Character::from_value(Value::String("JeanMichel".to_owned()))
+///         .unwrap_err()
+///         .to_string(),
+///     "`JeanMichel` is not a `Character`",
+/// );
 /// ```
 ///
 /// A variant holding data cannot derive it: only a unit enum can.
@@ -55,7 +67,8 @@ mod value;
 /// Three attributes, on a field:
 ///
 /// - `#[replique(alias = "hp")]` — the key the field answers to, when it
-///   differs from its name.
+///   differs from its name. It is the name the errors use, being the one the
+///   dialogue writes.
 /// - `#[replique(ignore)]` — the field is no key at all. It is left out of the
 ///   dict written back, and takes its value from [`Default`], which the struct
 ///   then has to implement.
@@ -81,7 +94,16 @@ mod value;
 /// ]));
 /// assert_eq!(
 ///     Stats::from_value(dict),
-///     Some(Stats { name: "Alice".to_owned(), health: 12, speed: 18.36 }),
+///     Ok(Stats { name: "Alice".to_owned(), health: 12, speed: 18.36 }),
+/// );
+///
+/// // A key left out, or holding the wrong type, is named in the error.
+/// let short = Value::Dict(std::collections::HashMap::from([
+///     ("name".to_owned(), Value::String("Alice".to_owned())),
+/// ]));
+/// assert_eq!(
+///     Stats::from_value(short).unwrap_err().to_string(),
+///     "key `hp`: missing",
 /// );
 ///
 /// // `speed` is no key: it is neither read nor written.
@@ -108,7 +130,7 @@ mod value;
 /// #[derive(RepliqueValue, Debug, PartialEq)]
 /// struct Volume(f64);
 ///
-/// assert_eq!(Volume::from_value(Value::Float(0.8)), Some(Volume(0.8)));
+/// assert_eq!(Volume::from_value(Value::Float(0.8)), Ok(Volume(0.8)));
 /// assert_eq!(Volume(0.8).into_value(), Value::Float(0.8));
 /// ```
 #[proc_macro_derive(RepliqueValue, attributes(replique))]

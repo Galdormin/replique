@@ -219,7 +219,7 @@ pub(crate) struct ChoiceDef {
     pub target: StepId,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
     Bool,
     Int,

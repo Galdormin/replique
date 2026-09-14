@@ -46,12 +46,15 @@ fn derive_enum(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
 
     check_unique(&names)?;
 
+    let type_name = LitStr::new(&name.to_string(), name.span());
+
     Ok(quote! {
         impl FromValue for #name {
-            fn from_value(value: Value) -> Option<Self> {
-                match String::from_value(value)?.as_str() {
-                    #(#names => Some(Self::#idents),)*
-                    _ => None,
+            fn from_value(value: Value) -> Result<Self, ValueError> {
+                let word = String::from_value(value)?;
+                match word.as_str() {
+                    #(#names => Ok(Self::#idents),)*
+                    _ => Err(ValueError::Unknown { expected: #type_name, got: word }),
                 }
             }
         }
@@ -118,13 +121,14 @@ fn derive_struct_named(name: &Ident, fields: &FieldsNamed) -> syn::Result<TokenS
 
     Ok(quote! {
         impl FromValue for #name {
-            fn from_value(value: Value) -> Option<Self> {
+            fn from_value(value: Value) -> Result<Self, ValueError> {
                 let Value::Dict(mut dict) = value else {
-                    return None;
+                    return Err(ValueError::wrong_type("dict", &value));
                 };
 
-                Some(Self {
-                    #(#idents: <#types as FromValue>::from_value(dict.remove(#names)?)?,)*
+                Ok(Self {
+                    #(#idents: <#types as FromMaybeValue>::from_maybe_value(dict.remove(#names))
+                        .map_err(|err| err.under_key(#names))?,)*
                     #(#default_idents: #default_exprs,)*
                     #maybe_default
                 })
@@ -161,8 +165,8 @@ fn derive_struct_unnamed(name: &Ident, fields: &FieldsUnnamed) -> syn::Result<To
     let ty = &field.ty;
     Ok(quote! {
         impl FromValue for #name {
-            fn from_value(value: Value) -> Option<Self> {
-                 Some(Self(<#ty as FromValue>::from_value(value)?))
+            fn from_value(value: Value) -> Result<Self, ValueError> {
+                 Ok(Self(<#ty as FromValue>::from_value(value)?))
             }
         }
 

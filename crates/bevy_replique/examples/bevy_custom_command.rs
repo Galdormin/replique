@@ -42,7 +42,7 @@ fn main() {
 }
 
 /// Represents character in the dialogue
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(RepliqueValue, Component, Debug, Clone, Copy, PartialEq, Eq)]
 enum Character {
     Alice,
     Bob,
@@ -78,15 +78,6 @@ impl Character {
     }
 }
 
-impl FromValue for Character {
-    fn from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::String(name) => Self::from_name(&name),
-            _ => None,
-        }
-    }
-}
-
 /// As many characters as the command was given.
 ///
 /// A tuple would pin their number down, which is what makes this one worth a
@@ -100,11 +91,9 @@ impl FromDialogueArgs for CharactersParams {
             .args
             .into_iter()
             .enumerate()
-            .map(|(i, v)| {
-                Character::from_value(v).ok_or(DialogueArgsError::Argument {
-                    index: i,
-                    expected: "Alice, Bob or Caroline",
-                })
+            .map(|(index, v)| {
+                Character::from_value(v)
+                    .map_err(|source| DialogueArgsError::Argument { index, source })
             })
             .collect::<Result<Vec<_>, DialogueArgsError>>()?;
 
