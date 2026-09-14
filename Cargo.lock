@@ -1393,7 +1393,9 @@ dependencies = [
 name = "bevy_replique_derive"
 version = "0.0.0"
 dependencies = [
+ "bevy",
  "bevy_replique",
+ "proc-macro2",
  "quote",
  "syn 3.0.5",
 ]

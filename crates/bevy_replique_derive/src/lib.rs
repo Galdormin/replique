@@ -6,6 +6,8 @@ extern crate quote;
 use proc_macro::TokenStream;
 use syn::{Data, DeriveInput, parse_macro_input};
 
+mod args;
+mod attrs;
 mod value;
 
 /// Implements both `FromValue` and `IntoValue`, so the type is a vocabulary the
@@ -147,6 +149,136 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
                 "Only enum or struct can derive `RepliqueValue`",
             )
             .to_compile_error(),
+        ),
+    }
+}
+
+/// Implements `FromDialogueArgs`, for the calls a plain tuple cannot say.
+/// A signature that lines up one argument per field needs none of this:
+/// `In<(String, f32)>` already is that, and a trailing `Option` already makes
+/// the last argument optional. This derive is for the three shapes left over.
+///
+/// **A call that dispatches on its first word.** An enum reads the word the
+/// call starts with, and each variant says what follows it, so one command
+/// covers several shapes of its own arity. A variant holds its arguments in
+/// the order it writes them, named or unnamed alike, and a unit one takes
+/// none; `#[replique(alias = "...")]` gives a variant another spelling, as it
+/// does in [`RepliqueValue`].
+///
+/// ```
+/// # use bevy::prelude::*;
+/// use bevy_replique::prelude::*;
+///
+/// /// `>> camera(shake)`, `>> camera(move, 120, 40)`
+/// #[derive(RepliqueArgs, Debug, PartialEq)]
+/// enum Camera {
+///     #[replique(alias = "shake")]
+///     Shake,
+///     #[replique(alias = "move")]
+///     MoveTo { x: f32, y: f32 },
+/// }
+///
+/// # fn call(args: Vec<Value>) -> DialogueArgs {
+/// #     DialogueArgs { runner: Entity::PLACEHOLDER, args }
+/// # }
+/// fn move_camera(In(order): In<Camera>) {
+///     let _ = order;
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_command("camera", move_camera);
+/// #
+/// # assert_eq!(
+/// #     Camera::from_dialogue_args(call(vec![Value::String("shake".to_owned())])),
+/// #     Ok(Camera::Shake),
+/// # );
+/// // A word no variant answers to is refused, and named in the log.
+/// assert_eq!(
+///     Camera::from_dialogue_args(call(vec![Value::String("zoom".to_owned())]))
+///         .unwrap_err()
+///         .to_string(),
+///     "argument 0: `zoom` is not a `Camera`",
+/// );
+/// ```
+///
+/// **A call that needs the dialogue it came from.** `#[runner]` on a field
+/// hands it the entity holding the `DialogueRunner`, which matters as soon as
+/// two dialogues run at once. It reads no argument, so it takes no position:
+/// the fields around it are numbered as if it were not there.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// use bevy_replique::prelude::*;
+///
+/// /// `>> lock(12)`
+/// #[derive(RepliqueArgs)]
+/// struct Lock {
+///     #[runner]
+///     runner: Entity,
+///     seconds: f32,
+/// }
+///
+/// fn lock(In(Lock { runner, seconds }): In<Lock>, mut commands: Commands) {
+///     let _ = (commands.entity(runner), seconds);
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_command("lock", lock);
+/// ```
+///
+/// **A call whose arity is not fixed.** `#[variadic]` on a last field collects
+/// every argument left into it, so `>> add_scene(Alice)` and
+/// `>> add_scene(Alice, Bob)` both fit. Taking none of them is a call too: the
+/// collection is then empty rather than refused. Fixed fields may come before
+/// it, and the index an error names is the one the writer sees, not the one
+/// inside the collection.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// use bevy_replique::prelude::*;
+///
+/// /// `>> notify("saved")` and `>> notify("hit", 1, 2)`
+/// #[derive(RepliqueArgs, Debug, PartialEq)]
+/// struct Notify(String, #[variadic] Vec<i64>);
+///
+/// # fn call(args: Vec<Value>) -> DialogueArgs {
+/// #     DialogueArgs { runner: Entity::PLACEHOLDER, args }
+/// # }
+/// fn notify(In(Notify(text, targets)): In<Notify>) {
+///     let _ = (text, targets);
+/// }
+/// # let mut app = App::new();
+/// # app.add_dialogue_command("notify", notify);
+/// #
+/// # assert_eq!(
+/// #     Notify::from_dialogue_args(call(vec![Value::String("saved".to_owned())])),
+/// #     Ok(Notify("saved".to_owned(), vec![])),
+/// # );
+/// // The third argument is named as the third, not as the second of the `Vec`.
+/// assert_eq!(
+///     Notify::from_dialogue_args(call(vec![
+///         Value::String("hit".to_owned()),
+///         Value::Int(1),
+///         Value::Bool(true),
+///     ]))
+///     .unwrap_err()
+///     .to_string(),
+///     "argument 2: expected int, got bool",
+/// );
+/// ```
+///
+/// A field of type `Option` is turned down in a shape that has a `#[variadic]`
+/// one: an optional argument left out and a first variadic one are written the
+/// same, and nothing in the call tells them apart.
+#[proc_macro_derive(RepliqueArgs, attributes(replique, runner, variadic))]
+pub fn replique_args(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    match input.data {
+        Data::Struct(data_struct) => args::replique_args_struct(&name, &data_struct),
+        Data::Enum(data_enum) => args::replique_args_enum(&name, &data_enum),
+        Data::Union(_) => TokenStream::from(
+            syn::Error::new(name.span(), "Only enum or struct can derive `RepliqueArgs`")
+                .to_compile_error(),
         ),
     }
 }

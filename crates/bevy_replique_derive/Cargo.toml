@@ -12,6 +12,8 @@ proc-macro = true
 [dependencies]
 syn = "3"
 quote = "1"
+proc-macro2 = "1"
 
 [dev-dependencies]
 bevy_replique = { path = "../bevy_replique" }
+bevy = { workspace = true }

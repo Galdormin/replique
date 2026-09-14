@@ -1,10 +1,10 @@
-use std::collections::HashSet;
-
 use proc_macro::TokenStream;
 use syn::{
     DataEnum, DataStruct, Expr, Fields, FieldsNamed, FieldsUnnamed, Ident, LitStr, Path,
-    PathArguments, Type, TypePath, spanned::Spanned,
+    spanned::Spanned,
 };
+
+use crate::attrs::{check_unique, is_option, variant_alias};
 
 pub(crate) fn replique_value_enum(name: &Ident, data: &DataEnum) -> TokenStream {
     derive_enum(name, data).unwrap_or_else(|e| e.to_compile_error().into())
@@ -34,13 +34,9 @@ fn derive_enum(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
             ));
         }
 
-        let attrs = VariantAttrs::parse(&v.attrs)?;
+        let alias = variant_alias(&v.attrs)?;
 
-        names.push(
-            attrs
-                .alias
-                .unwrap_or_else(|| LitStr::new(&v.ident.to_string(), v.ident.span())),
-        );
+        names.push(alias.unwrap_or_else(|| LitStr::new(&v.ident.to_string(), v.ident.span())));
         idents.push(&v.ident);
     }
 
@@ -180,34 +176,6 @@ fn derive_struct_unnamed(name: &Ident, fields: &FieldsUnnamed) -> syn::Result<To
 }
 
 #[derive(Default)]
-struct VariantAttrs {
-    alias: Option<LitStr>,
-}
-
-impl VariantAttrs {
-    fn parse(attrs: &[syn::Attribute]) -> syn::Result<Self> {
-        let mut parsed = Self::default();
-
-        // Every `#[replique]` the variant carries, not just the first one.
-        for attr in attrs.iter().filter(|a| a.path().is_ident("replique")) {
-            attr.parse_nested_meta(|meta| {
-                // #[replique(alias = "alice")]
-                if meta.path.is_ident("alias") {
-                    if parsed.alias.is_some() {
-                        return Err(meta.error("`alias` is already given"));
-                    }
-                    parsed.alias = Some(meta.value()?.parse()?);
-                    return Ok(());
-                }
-                Err(meta.error("unrecognized `replique` attribute"))
-            })?;
-        }
-
-        Ok(parsed)
-    }
-}
-
-#[derive(Default)]
 struct FieldAttrs {
     alias: Option<LitStr>,
     ignore: Option<Path>,
@@ -265,32 +233,4 @@ impl FieldAttrs {
 
         Ok(parsed)
     }
-}
-
-/// Two fields answering to the same key would leave one of them unreachable,
-/// and the derived `FromValue` would refuse every dict without saying why.
-fn check_unique(names: &[LitStr]) -> syn::Result<()> {
-    let mut seen = HashSet::new();
-    for name in names {
-        if !seen.insert(name.value()) {
-            return Err(syn::Error::new(
-                name.span(),
-                format!("`{}` is already used", name.value()),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn is_option(ty: &Type) -> bool {
-    let Type::Path(TypePath {
-        qself: None, path, ..
-    }) = ty
-    else {
-        return false;
-    };
-    path.segments.last().is_some_and(|seg| {
-        seg.ident == "Option" && matches!(seg.arguments, PathArguments::AngleBracketed(_))
-    })
 }

@@ -6,9 +6,9 @@
 //!
 //! It is also where a custom argument type earns its keep. [`Character`]
 //! implements [`FromValue`], so a word the cast does not know is refused
-//! before it reaches the game, and [`CharactersParams`] implements
-//! [`FromCommandArgs`] so that a command takes as many characters as the
-//! writer put.
+//! before it reaches the game, and [`CharactersParams`] derives
+//! [`RepliqueArgs`] so that a command takes as many characters as the writer
+//! put.
 //!
 //! Space advances a line. This dialogue has no choice to make.
 //!
@@ -81,25 +81,11 @@ impl Character {
 /// As many characters as the command was given.
 ///
 /// A tuple would pin their number down, which is what makes this one worth a
-/// [`FromCommandArgs`] of its own: `>> add_scene(Alice, Bob)` and
-/// `>> add_scene(Caroline)` both fit.
-struct CharactersParams(Vec<Character>);
-
-impl FromDialogueArgs for CharactersParams {
-    fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-        let characters = args
-            .args
-            .into_iter()
-            .enumerate()
-            .map(|(index, v)| {
-                Character::from_value(v)
-                    .map_err(|source| DialogueArgsError::Argument { index, source })
-            })
-            .collect::<Result<Vec<_>, DialogueArgsError>>()?;
-
-        Ok(Self(characters))
-    }
-}
+/// [`FromDialogueArgs`] of its own: `>> add_scene(Alice, Bob)` and
+/// `>> add_scene(Caroline)` both fit. `#[variadic]` is what the derive reads
+/// as "every argument left".
+#[derive(RepliqueArgs)]
+struct CharactersParams(#[variadic] Vec<Character>);
 
 /// `>> add_scene(Alice, Bob)`
 fn add_scene(
