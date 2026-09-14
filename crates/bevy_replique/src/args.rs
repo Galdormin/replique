@@ -30,7 +30,7 @@
 //!     let _ = (sound, volume.unwrap_or(1.0));
 //! }
 //! # let mut app = App::new();
-//! # app.add_dialogue_command("play", play);
+//! # app.add_dialogue_command_named("play", play);
 //! ```
 //!
 //! Two ways out when a tuple cannot say it. [`DialogueArgs`] takes the call
@@ -142,7 +142,7 @@ pub enum DialogueArgsError {
 /// }
 /// # let mut app = App::new();
 /// # app.init_resource::<Score>();
-/// # app.add_dialogue_command("add", add);
+/// # app.add_dialogue_command_named("add", add);
 /// ```
 ///
 /// **A command that needs the dialogue it came from.** [`runner`] is the
@@ -163,7 +163,7 @@ pub enum DialogueArgsError {
 ///     commands.entity(args.runner).insert(Locked);
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("lock", lock);
+/// # app.add_dialogue_command_named("lock", lock);
 /// ```
 ///
 /// [`FromValue::from_value`] reads a single [`Value`] into a Rust type, for a
@@ -230,7 +230,7 @@ impl DialogueArgs {
 ///     let _ = (direction, speed.unwrap_or(1.0));
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("face", face);
+/// # app.add_dialogue_command_named("face", face);
 /// #
 /// # assert_eq!(
 /// #     Direction::from_value(Value::String("left".into())),
@@ -288,7 +288,7 @@ impl DialogueArgs {
 ///     let _ = stats;
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("show", show);
+/// # app.add_dialogue_command_named("show", show);
 /// #
 /// # let dict = Value::Dict(std::collections::HashMap::from([
 /// #     ("name".to_owned(), Value::String("Alice".into())),
@@ -450,7 +450,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 ///     let _ = order;
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("camera", move_camera);
+/// # app.add_dialogue_command_named("camera", move_camera);
 /// ```
 ///
 /// **A call whose arity is not fixed.** A tuple says how many arguments there
@@ -483,7 +483,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 ///     let _ = names;
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("add_scene", add_scene);
+/// # app.add_dialogue_command_named("add_scene", add_scene);
 /// ```
 ///
 /// [`DialogueArgs`] itself is the same thing without the typing, when the
@@ -594,7 +594,7 @@ impl_from_dialogue_args_single!(
 ///     **stats
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_function("get_stat", get_stat);
+/// # app.add_dialogue_function_named("get_stat", get_stat);
 /// #
 /// # let value = Stats { hp: 12, gold: 3 }.into_value();
 /// # assert!(matches!(value, Value::Dict(_)));

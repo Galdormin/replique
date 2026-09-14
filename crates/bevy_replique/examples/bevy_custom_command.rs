@@ -33,8 +33,8 @@ fn main() {
             ..default()
         }))
         .add_plugins(RepliquePLugin)
-        .add_dialogue_command("add_scene", add_scene)
-        .add_dialogue_command("remove_scene", remove_scene)
+        .add_dialogue_command(add_scene)
+        .add_dialogue_command(remove_scene)
         .init_resource::<Waiting>()
         .add_systems(Startup, setup)
         .add_systems(Update, (show_line, show_finished, handle_input))
@@ -88,6 +88,7 @@ impl Character {
 struct CharactersParams(#[variadic] Vec<Character>);
 
 /// `>> add_scene(Alice, Bob)`
+#[replique_command]
 fn add_scene(
     In(CharactersParams(characters)): In<CharactersParams>,
     mut commands: Commands,
@@ -133,6 +134,7 @@ fn add_scene(
 }
 
 /// `>> remove_scene(Alice)`
+#[replique_command]
 fn remove_scene(
     In(CharactersParams(characters)): In<CharactersParams>,
     mut commands: Commands,

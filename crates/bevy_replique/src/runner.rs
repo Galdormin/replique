@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn an_inline_expression_is_answered_by_a_registered_function() {
         let mut app = app();
-        app.add_dialogue_function("upper_new", upper_new);
+        app.add_dialogue_function_named("upper_new", upper_new);
         let dialogue = add_dialogue(
             &mut app,
             ":= start\nAlice: Bonjour [upper_new(\"bob\")] !\n---\n",
@@ -257,7 +257,7 @@ mod tests {
 
         let mut app = app();
         app.insert_resource(Gold(12))
-            .add_dialogue_function("gold", gold);
+            .add_dialogue_function_named("gold", gold);
         let dialogue = add_dialogue(&mut app, ":= start\nAlice: [gold()] pièces\n---\n");
         let runner = spawn_runner(&mut app, dialogue);
 
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn a_function_is_reachable_from_a_let_and_from_a_choice() {
         let mut app = app();
-        app.add_dialogue_function("upper_new", upper_new);
+        app.add_dialogue_function_named("upper_new", upper_new);
         let dialogue = add_dialogue(
             &mut app,
             ":= start\n[let $nom = upper_new(\"alice\")]\n-> Parler à [$nom]\n    Bob: Salut.\n---\n",
@@ -303,7 +303,7 @@ mod tests {
 
         // The VM is back in its component, untouched, so registering the
         // function and asking again works.
-        app.add_dialogue_function("upper_new", upper_new);
+        app.add_dialogue_function_named("upper_new", upper_new);
         start(&mut app, runner);
 
         assert_eq!(lines(&app), ["BOB"]);
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn a_pending_start_is_taken_up_once_the_asset_is_there() {
         let mut app = app();
-        app.add_dialogue_function("upper_new", upper_new);
+        app.add_dialogue_function_named("upper_new", upper_new);
         let handle = add_dialogue(&mut app, ":= start\nAlice: [upper_new(\"bob\")]\n---\n");
         let runner = spawn_runner(&mut app, handle.clone());
 
@@ -364,7 +364,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_function("stat", stat);
+        app.add_dialogue_function_named("stat", stat);
         let dialogue = add_dialogue(
             &mut app,
             ":= start\nAlice: [stat(Alice)] and [stat(Carol)]\n---\n",
@@ -384,7 +384,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_function("stat", stat);
+        app.add_dialogue_function_named("stat", stat);
         let dialogue = add_dialogue(&mut app, ":= start\nAlice: [stat(Alice)] hp\n---\n");
         let runner = spawn_runner(&mut app, dialogue);
 

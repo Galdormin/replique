@@ -12,7 +12,9 @@ pub mod plugin;
 pub mod runner;
 
 pub mod prelude {
-    pub use bevy_replique_derive::{RepliqueArgs, RepliqueValue};
+    pub use bevy_replique_derive::{
+        RepliqueArgs, RepliqueValue, replique_command, replique_function,
+    };
     pub use replique::dialogue::{NodeName, Value, ValueType};
 
     pub use crate::args::*;

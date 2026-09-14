@@ -21,8 +21,40 @@
 //!
 //! # let mut app = App::new();
 //! # app.init_resource::<Flags>();
-//! app.add_dialogue_command("set_flag", set_flag);
+//! # app.add_dialogue_command_named("set_flag", set_flag);
 //! ```
+//!
+//! **Declare the name over the system.** `#[replique_command]` writes down the
+//! word the dialogue writes after the `>>`, next to what it does, and
+//! [`add_dialogue_command`](DialogueCommandAppExt::add_dialogue_command)
+//! registers it from there. This is the way to register a command: the name is
+//! written once, where it can be read and documented.
+//!
+//! ```
+//! # use bevy::prelude::*;
+//! # use bevy::platform::collections::HashSet;
+//! # use bevy_replique::prelude::*;
+//! # #[derive(Resource, Default)]
+//! # struct Flags(HashSet<String>);
+//! /// Turns a flag of the save on or off.
+//! #[replique_command(name = "set_flag")]
+//! fn raise(In((flag, on)): In<(String, bool)>, mut flags: ResMut<Flags>) {
+//!     if on {
+//!         flags.0.insert(flag);
+//!     } else {
+//!         flags.0.remove(&flag);
+//!     }
+//! }
+//!
+//! # let mut app = App::new();
+//! # app.init_resource::<Flags>();
+//! app.add_dialogue_command(raise);
+//! # assert_eq!(raise::NAME, "set_flag");
+//! ```
+//!
+//! [`add_dialogue_command_named`](DialogueCommandAppExt::add_dialogue_command_named)
+//! takes the name as a string instead, for a system the attribute cannot be
+//! put on.
 
 use bevy::{
     ecs::message::{MessageCursor, Messages},
@@ -43,14 +75,116 @@ pub(crate) struct DialogueCommandRegistry {
     commands: HashMap<String, CommandRunner>,
 }
 
+/// A command declared with `#[replique_command]`, name and doc included.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// /// Turns a flag of the save on or off.
+/// #[replique_command(name = "set_flag")]
+/// fn raise(In((name, on)): In<(String, bool)>) {
+///     let _ = (name, on);
+/// }
+///
+/// assert_eq!(raise::NAME, "set_flag");
+/// assert_eq!(raise::DOC, "Turns a flag of the save on or off.");
+/// ```
+///
+/// Reach it through [`add_dialogue_command`], which is the whole of what it is
+/// for.
+///
+/// [`add_dialogue_command`]: DialogueCommandAppExt::add_dialogue_command
+pub trait RepliqueCommand {
+    /// What the dialogue writes after the `>>`.
+    const NAME: &'static str;
+    /// The documentation the attribute read off the system.
+    const DOC: &'static str;
+
+    fn register(self, app: &mut App);
+}
+
 /// Registers the system to run for a `>>` command.
+///
+/// Two ways in, and [`add_dialogue_command`] is the one to reach for: the word
+/// the dialogue writes then lives with the system it names, where it can be
+/// read and documented, instead of being repeated as a string at the point of
+/// registration. [`add_dialogue_command_named`] is for a system the attribute
+/// cannot be put on.
+///
+/// Either way, the shape of the input says what the call must look like:
+/// `In<(String, f32)>`, `In<String>`, `In<()>`, or
+/// [`In<DialogueArgs>`](DialogueArgs) to take the arguments raw. A call that
+/// does not fit is logged and skipped, and the dialogue carries on.
+///
+/// Unlike a function, a command may write to the world, and may leave the
+/// dialogue waiting: it is what the `>>` of a line is for.
+///
+/// [`add_dialogue_command`]: DialogueCommandAppExt::add_dialogue_command
+/// [`add_dialogue_command_named`]: DialogueCommandAppExt::add_dialogue_command_named
 pub trait DialogueCommandAppExt {
-    /// `name` is what the dialogue writes after the `>>`, and `T` the shape its
-    /// arguments must have: `In<(String, f32)>`, `In<String>`, `In<()>`, or
-    /// [`In<DialogueArgs>`](DialogueArgs) to take them raw.
+    /// Registers a system declared with `#[replique_command]`, under the name
+    /// the attribute gave it.
+    ///
+    /// This is the way to register a command. There is no name to repeat here,
+    /// hence none to get wrong: the word the dialogue writes is the one
+    /// written over the system.
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy::platform::collections::HashSet;
+    /// # use bevy_replique::prelude::*;
+    /// # #[derive(Resource, Default)]
+    /// # struct Flags(HashSet<String>);
+    /// /// `>> set_flag("met_alice", true)`
+    /// #[replique_command]
+    /// fn set_flag(In((flag, on)): In<(String, bool)>, mut flags: ResMut<Flags>) {
+    ///     if on {
+    ///         flags.0.insert(flag);
+    ///     } else {
+    ///         flags.0.remove(&flag);
+    ///     }
+    /// }
+    /// # let mut app = App::new();
+    /// # app.init_resource::<Flags>();
+    /// app.add_dialogue_command(set_flag);
+    /// ```
     ///
     /// Registering the same name twice keeps the last system.
-    fn add_dialogue_command<T, M>(
+    fn add_dialogue_command<S>(&mut self, system: S) -> &mut Self
+    where
+        S: RepliqueCommand;
+
+    /// Registers a system under a name given here, for the cases
+    /// [`add_dialogue_command`] cannot cover: a system from a crate you do not
+    /// control, or a name only known once the game runs.
+    ///
+    /// Prefer the attribute when you can. A name written here is a second
+    /// place to keep in step with the dialogue, and nothing checks that the
+    /// two agree.
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy::platform::collections::HashSet;
+    /// # use bevy_replique::prelude::*;
+    /// # #[derive(Resource, Default)]
+    /// # struct Flags(HashSet<String>);
+    /// /// `>> set_flag("met_alice", true)`
+    /// fn set_flag(In((flag, on)): In<(String, bool)>, mut flags: ResMut<Flags>) {
+    ///     if on {
+    ///         flags.0.insert(flag);
+    ///     } else {
+    ///         flags.0.remove(&flag);
+    ///     }
+    /// }
+    /// # let mut app = App::new();
+    /// # app.init_resource::<Flags>();
+    /// app.add_dialogue_command_named("set_flag", set_flag);
+    /// ```
+    ///
+    /// Registering the same name twice keeps the last system.
+    ///
+    /// [`add_dialogue_command`]: DialogueCommandAppExt::add_dialogue_command
+    fn add_dialogue_command_named<T, M>(
         &mut self,
         name: impl Into<String>,
         system: impl IntoSystem<In<T>, (), M> + 'static,
@@ -60,7 +194,7 @@ pub trait DialogueCommandAppExt {
 }
 
 impl DialogueCommandAppExt for App {
-    fn add_dialogue_command<T, M>(
+    fn add_dialogue_command_named<T, M>(
         &mut self,
         name: impl Into<String>,
         system: impl IntoSystem<In<T>, (), M> + 'static,
@@ -89,6 +223,14 @@ impl DialogueCommandAppExt for App {
             .commands
             .insert(name, run);
 
+        self
+    }
+
+    fn add_dialogue_command<S>(&mut self, system: S) -> &mut Self
+    where
+        S: RepliqueCommand,
+    {
+        system.register(self);
         self
     }
 }
@@ -187,7 +329,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_command("play", play);
+        app.add_dialogue_command_named("play", play);
         let runner = spawn_runner(&mut app);
 
         call(
@@ -211,7 +353,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_command("play", play);
+        app.add_dialogue_command_named("play", play);
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "play", vec![Value::Bool(true)]);
@@ -228,7 +370,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_command("any", any);
+        app.add_dialogue_command_named("any", any);
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "any", vec![Value::Bool(true)]);
@@ -241,7 +383,7 @@ mod tests {
         fn noop(In(()): In<()>) {}
 
         let mut app = app();
-        app.add_dialogue_command("noop", noop);
+        app.add_dialogue_command_named("noop", noop);
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "noop", vec![]);
@@ -270,7 +412,7 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_command("spawn", spawn);
+        app.add_dialogue_command_named("spawn", spawn);
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "spawn", vec![]);
@@ -294,8 +436,8 @@ mod tests {
         }
 
         let mut app = app();
-        app.add_dialogue_command("play", first);
-        app.add_dialogue_command("play", second);
+        app.add_dialogue_command_named("play", first);
+        app.add_dialogue_command_named("play", second);
         let runner = spawn_runner(&mut app);
 
         call(&mut app, runner, "play", vec![]);

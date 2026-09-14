@@ -11,7 +11,7 @@
 //! cargo run -p bevy_replique --example bevy_custom_function
 //! ```
 //!
-//! [`add_dialogue_function`]: bevy_replique::function::DialogueFunctionAppExt::add_dialogue_function
+//! [`add_dialogue_function_named`]: bevy_replique::function::DialogueFunctionAppExt::add_dialogue_function_named
 
 use bevy::prelude::*;
 use bevy_replique::prelude::*;
@@ -28,11 +28,11 @@ fn main() {
         }))
         .add_plugins(RepliquePLugin)
         // Read the world, and answer a value.
-        .add_dialogue_function("get_stat", get_stat)
-        .add_dialogue_function("party_size", party_size)
-        .add_dialogue_function("richest", richest)
+        .add_dialogue_function(get_stat)
+        .add_dialogue_function(party_size)
+        .add_dialogue_function(richest)
         // Writes to the world, and answers nothing.
-        .add_dialogue_command("hurt", hurt)
+        .add_dialogue_command(hurt)
         .init_resource::<Waiting>()
         .add_systems(Startup, setup)
         .add_systems(Update, (show_line, show_stats, show_finished, handle_input))
@@ -63,6 +63,7 @@ struct Stats {
 }
 
 /// `[let $stat = get_stat(Alice)]`
+#[replique_function]
 fn get_stat(
     In((who,)): In<(Character,)>,
     characters: Query<(&Character, &Stats)>,
@@ -75,11 +76,13 @@ fn get_stat(
 }
 
 /// `[party_size()]`
+#[replique_function]
 fn party_size(In(()): In<()>, characters: Query<&Character>) -> i64 {
     characters.iter().count() as i64
 }
 
 /// `[richest()]`
+#[replique_function]
 fn richest(In(()): In<()>, characters: Query<(&Character, &Stats)>) -> Result<Character, String> {
     characters
         .iter()
@@ -89,6 +92,7 @@ fn richest(In(()): In<()>, characters: Query<(&Character, &Stats)>) -> Result<Ch
 }
 
 /// `>> hurt(Alice, 8)`
+#[replique_command]
 fn hurt(In((who, damage)): In<(Character, i64)>, mut characters: Query<(&Character, &mut Stats)>) {
     for (character, mut stats) in &mut characters {
         if *character == who {

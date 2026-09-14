@@ -8,6 +8,7 @@ use syn::{Data, DeriveInput, parse_macro_input};
 
 mod args;
 mod attrs;
+mod call;
 mod value;
 
 /// Implements both `FromValue` and `IntoValue`, so the type is a vocabulary the
@@ -185,7 +186,7 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 ///     let _ = order;
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("camera", move_camera);
+/// # app.add_dialogue_command_named("camera", move_camera);
 /// #
 /// # assert_eq!(
 /// #     Camera::from_dialogue_args(call(vec![Value::String("shake".to_owned())])),
@@ -217,11 +218,12 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 ///     seconds: f32,
 /// }
 ///
+/// #[replique_command]
 /// fn lock(In(Lock { runner, seconds }): In<Lock>, mut commands: Commands) {
 ///     let _ = (commands.entity(runner), seconds);
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("lock", lock);
+/// # app.add_dialogue_command(lock);
 /// ```
 ///
 /// **A call whose arity is not fixed.** `#[variadic]` on a last field collects
@@ -242,11 +244,13 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// # fn call(args: Vec<Value>) -> DialogueArgs {
 /// #     DialogueArgs { runner: Entity::PLACEHOLDER, args }
 /// # }
+///
+/// #[replique_command]
 /// fn notify(In(Notify(text, targets)): In<Notify>) {
 ///     let _ = (text, targets);
 /// }
 /// # let mut app = App::new();
-/// # app.add_dialogue_command("notify", notify);
+/// # app.add_dialogue_command(notify);
 /// #
 /// # assert_eq!(
 /// #     Notify::from_dialogue_args(call(vec![Value::String("saved".to_owned())])),
@@ -281,4 +285,118 @@ pub fn replique_args(input: TokenStream) -> TokenStream {
                 .to_compile_error(),
         ),
     }
+}
+
+/// Declares a system as a function the dialogue can call.
+///
+/// Writes the name the dialogue calls it by next to what it does, so that the
+/// registration has nothing left to repeat: `app.add_dialogue_function(upper)`.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// /// The name in upper case, to shout it.
+/// #[replique_function(name = "upper")]
+/// fn shout(In((text,)): In<(String,)>) -> String {
+///     text.to_uppercase()
+/// }
+///
+/// # let mut app = App::new();
+/// app.add_dialogue_function(shout);
+/// assert_eq!(shout::NAME, "upper");
+/// assert_eq!(shout::DOC, "The name in upper case, to shout it.");
+/// ```
+///
+/// Without `name`, the system is called by its own name. The documentation
+/// written over it is kept, reachable as `shout::DOC`.
+///
+/// The system itself moves under `shout::system`.
+///
+/// # The name becomes a type
+///
+/// What the attribute leaves behind under the name of the system is a unit
+/// struct, and a unit struct is a pattern. That name can therefore no longer
+/// be bound to anything in the crate — not a parameter, not a `let`, not a
+/// field of a destructuring — and the compiler says so wherever it is tried:
+///
+/// ```text
+/// error[E0530]: function parameters cannot shadow unit structs
+///    |
+///  3 | #[replique_function]
+///    | -------------------- the unit struct `gold` is defined here
+/// ...
+/// 12 | fn set_gold(In((amount,)): In<(i64,)>, mut gold: ResMut<Gold>) {
+///    |                                            ^^^^ cannot be named the same as a unit struct
+/// ```
+///
+/// It happens more often than it sounds: a dialogue calls a function by the
+/// name of the thing it is about, and so does the resource holding that thing.
+/// Two ways out, both fine.
+///
+/// **Rename what is bound.** The system keeps the name the dialogue uses, and
+/// the parameter takes another:
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// # #[derive(Resource)]
+/// # struct Gold(i64);
+/// #[replique_function]
+/// fn gold(In(()): In<()>, purse: Res<Gold>) -> i64 {
+///     purse.0
+/// }
+/// ```
+///
+/// **Or rename the system and say the dialogue name in the attribute.** A
+/// prefix keeps the Rust side out of the way and reads well in a file that
+/// holds a lot of them:
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// # #[derive(Resource)]
+/// # struct Gold(i64);
+/// #[replique_function(name = "gold")]
+/// fn fn_gold(In(()): In<()>, gold: Res<Gold>) -> i64 {
+///     gold.0
+/// }
+/// # assert_eq!(fn_gold::NAME, "gold");
+/// ```
+///
+/// The second is worth taking as a habit if the collision bites twice: what
+/// the dialogue writes stays in the attribute, where it is declared once, and
+/// the Rust names stop competing with it. `cmd_` does the same for
+/// [`macro@replique_command`].
+#[proc_macro_attribute]
+pub fn replique_function(args: TokenStream, item: TokenStream) -> TokenStream {
+    call::expand(call::Kind::Function, args, item)
+}
+
+/// Declares a system as a `>>` command of the dialogue.
+///
+/// The same as [`macro@replique_function`], for a system that runs rather than
+/// answers: it writes the word the dialogue puts after the `>>` next to what it
+/// does, so that `app.add_dialogue_command(set_flag)` has no name to repeat.
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_replique::prelude::*;
+/// /// Turns a flag of the save on or off.
+/// #[replique_command(name = "set_flag")]
+/// fn raise(In((flag, on)): In<(String, bool)>) {
+///     let _ = (flag, on);
+/// }
+///
+/// # let mut app = App::new();
+/// app.add_dialogue_command(raise);
+/// assert_eq!(raise::NAME, "set_flag");
+/// ```
+///
+/// The name of the system becomes a unit struct here too, so it can no longer
+/// be bound to anything in the crate. See [the section on
+/// it](macro@replique_function#the-name-becomes-a-type) for the two ways
+/// around; `cmd_set_flag` with `name = "set_flag"` is the one that scales.
+#[proc_macro_attribute]
+pub fn replique_command(args: TokenStream, item: TokenStream) -> TokenStream {
+    call::expand(call::Kind::Command, args, item)
 }
