@@ -12,6 +12,7 @@
   "[break"
   "[continue"
   "]"
+  "await"
 ] @keyword
 
 ; `---`
