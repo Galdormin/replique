@@ -8,6 +8,9 @@
   "[if"
   "[elif"
   "[else"
+  "[while"
+  "[break"
+  "[continue"
   "]"
 ] @keyword
 
@@ -19,6 +22,13 @@
 
 ; `Alice:` -- the trailing colon belongs to the token
 (speaker) @property
+
+; `[$nom]` read in the middle of a line
+(interpolation
+  [
+    "["
+    "]"
+  ] @punctuation.special)
 
 ; Expressions
 (variable) @variable.special
