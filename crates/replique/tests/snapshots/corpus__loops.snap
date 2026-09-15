@@ -1,0 +1,46 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set gold "0" @2:1 "[let $gold = 0]"
+  while "$gold < 3" @3:1 "[while $gold < 3]\n    [let $gold = $gold + 1]\n    Alice: J'ai [$gold] pièces."
+    set gold "$gold + 1" @4:5 "[let $gold = $gold + 1]"
+    line Alice "J'ai " [$gold] " pièces." @5:5 "Alice: J'ai [$gold] pièces."
+  line Alice "Je m'arrête là." @6:1 "Alice: Je m'arrête là."
+  set i "0" @8:1 "[let $i = 0]"
+  while "true" @9:1 "[while true]\n    [let $i = $i + 1]\n    [if $i == 2]\n        [continue]\n    [if $i > 4]\n        [break]\n    Alice: Tour [$i]."
+    set i "$i + 1" @10:5 "[let $i = $i + 1]"
+    if-group @11:5 "[if $i == 2]\n        [continue]"
+      branch "$i == 2" @11:5 "[if $i == 2]\n        [continue]"
+        continue @12:9 "[continue]"
+    if-group @13:5 "[if $i > 4]\n        [break]"
+      branch "$i > 4" @13:5 "[if $i > 4]\n        [break]"
+        break @14:9 "[break]"
+    line Alice "Tour " [$i] "." @15:5 "Alice: Tour [$i]."
+  line Alice "Fini." @16:1 "Alice: Fini."
+  set n "0" @18:1 "[let $n = 0]"
+  while "$n < 2" @19:1 "[while $n < 2]\n    [let $n = $n + 1]\n    -> Encore\n        Alice: Tour [$n].\n    -> Assez\n        [break]"
+    set n "$n + 1" @20:5 "[let $n = $n + 1]"
+    choice-group @21:5 "-> Encore\n        Alice: Tour [$n].\n    -> Assez\n        [break]"
+      choice "Encore" @21:5 "-> Encore\n        Alice: Tour [$n]."
+        line Alice "Tour " [$n] "." @22:9 "Alice: Tour [$n]."
+      choice "Assez" @23:5 "-> Assez\n        [break]"
+        break @24:9 "[break]"
+  line Alice "Un autre." @25:1 "Alice: Un autre."
+  set n "0" @27:1 "[let $n = 0]"
+  while "$n < 3" @28:1 "[while $n < 3]\n    [let $n = $n + 1]\n    [let $m = 0]\n    [while $m < 3]\n        [let $m = $m + 1]\n        Alice: Tour [$n]-[$m]\n        [if $m == 1]\n            [continue]\n        [elif $m == 2]\n            [break]"
+    set n "$n + 1" @29:5 "[let $n = $n + 1]"
+    set m "0" @30:5 "[let $m = 0]"
+    while "$m < 3" @31:5 "[while $m < 3]\n        [let $m = $m + 1]\n        Alice: Tour [$n]-[$m]\n        [if $m == 1]\n            [continue]\n        [elif $m == 2]\n            [break]"
+      set m "$m + 1" @32:9 "[let $m = $m + 1]"
+      line Alice "Tour " [$n] "-" [$m] @33:9 "Alice: Tour [$n]-[$m]"
+      if-group @34:9 "[if $m == 1]\n            [continue]\n        [elif $m == 2]\n            [break]"
+        branch "$m == 1" @34:9 "[if $m == 1]\n            [continue]"
+          continue @35:13 "[continue]"
+        branch "$m == 2" @36:9 "[elif $m == 2]\n            [break]"
+          break @37:13 "[break]"
+
+== diagnostics ==
+(none)

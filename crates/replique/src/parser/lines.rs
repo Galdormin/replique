@@ -43,9 +43,16 @@ pub(super) enum LineKind<'a> {
     /// `[elif <src>]` - another condition of the block before it.
     Elif(Spanned<&'a str>),
     /// `[else]` - what the block before it does when no condition holds.
-    /// Keeps its payload, which must be empty, so that `[else oups]` can be
-    /// reported.
+    /// Hold the trailing after `[else`
     Else(Spanned<&'a str>),
+    /// `[while <src>]` - opens a loop block
+    While(Spanned<&'a str>),
+    /// `[break]` - break the while loop
+    /// Hold the trailing after `[break`
+    Break(Spanned<&'a str>),
+    /// `[continue]` - continue the while loop
+    /// Hold the trailing after `[continue`
+    Continue(Spanned<&'a str>),
     /// A line matching no known marker. Holds the whole line so that the error
     /// can be reported later without losing what the author actually wrote.
     Malformed(Spanned<&'a str>),
@@ -136,6 +143,15 @@ pub fn classify(text: &str, offset: usize) -> LineKind<'_> {
     }
     if let Some(rest) = strip_bracket(text, "[else", offset) {
         return LineKind::Else(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[while", offset) {
+        return LineKind::While(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[break", offset) {
+        return LineKind::Break(rest);
+    }
+    if let Some(rest) = strip_bracket(text, "[continue", offset) {
+        return LineKind::Continue(rest);
     }
     if let Some(marker) = malformed_marker(text, offset) {
         return LineKind::Malformed(marker);

@@ -136,6 +136,21 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     render_stmts(out, src, body, depth + 2);
                 }
             }
+            StmtKind::While { condition, body } => {
+                let _ = writeln!(
+                    out,
+                    "{pad}while {:?} {}",
+                    &src.raw[condition.span.start..condition.span.end],
+                    at(src, stmt.span)
+                );
+                render_stmts(out, src, body, depth + 1);
+            }
+            StmtKind::Break => {
+                let _ = writeln!(out, "{pad}break {}", at(src, stmt.span));
+            }
+            StmtKind::Continue => {
+                let _ = writeln!(out, "{pad}continue {}", at(src, stmt.span));
+            }
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
                 for Choice { text, body, span } in choices {
@@ -205,6 +220,7 @@ corpus!(
     else_branch,
     dicts,
     inline,
+    loops,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -224,4 +240,5 @@ corpus!(
     bad_conditions,
     bad_dicts,
     bad_inline,
+    bad_loops,
 );

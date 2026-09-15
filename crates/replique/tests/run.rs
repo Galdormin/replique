@@ -128,4 +128,5 @@ run!(
     (else_branch, "start"),
     (dicts, "start"),
     (inline, "start"),
+    (loops, "start"),
 );

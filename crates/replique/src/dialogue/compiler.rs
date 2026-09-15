@@ -72,6 +72,15 @@ pub fn compile(parsed: Parsed) -> Compiled {
     }
 }
 
+/// Where a `[break]` and a `[continue]` lead, for the loop being compiled.
+#[derive(Clone, Copy)]
+struct LoopTargets {
+    /// The test of the loop, which is what `[continue]` goes back to.
+    test: StepId,
+    /// What follows the loop, which is what `[break]` skips to.
+    after: StepId,
+}
+
 /// Compile one node declaration.
 ///
 /// The [`StepKind::End`] is pushed first so the whole body can be threaded back
@@ -82,7 +91,7 @@ fn compile_node(node: NodeDecl) -> DialogueNode {
     let end = builder.push(StepKind::End);
 
     // BuildError here are bugs and should panic
-    let start = build_block(&mut builder, node.body, end).unwrap();
+    let start = build_block(&mut builder, node.body, end, None).unwrap();
     builder.build(node.name.into(), start).unwrap()
 }
 
@@ -95,10 +104,15 @@ fn compile_node(node: NodeDecl) -> DialogueNode {
 ///
 /// An empty body pushes nothing and gives `last_id` straight back, which is how
 /// a choice with no body simply carries on.
+///
+/// `loop_targets` is the loop this block is inside of, if any. It is handed
+/// down to the blocks this one holds — a branch or a choice body is still in
+/// the loop around it — and replaced when a `[while]` opens its own.
 fn build_block(
     builder: &mut DialogueNodeBuilder,
     body: Vec<Stmt>,
     last_id: StepId,
+    loop_targets: Option<LoopTargets>,
 ) -> Result<StepId, BuildError> {
     let mut current_id = last_id;
     for stmt in body.into_iter().rev() {
@@ -134,12 +148,12 @@ fn build_block(
                 otherwise,
             } => {
                 let mut next_branch = match otherwise {
-                    Some(body) => build_block(builder, body, current_id)?,
+                    Some(body) => build_block(builder, body, current_id, loop_targets)?,
                     None => current_id,
                 };
 
                 for branch in branches.into_iter().rev() {
-                    let then = build_block(builder, branch.body, current_id)?;
+                    let then = build_block(builder, branch.body, current_id, loop_targets)?;
                     next_branch = builder.push(StepKind::Branch {
                         condition: branch
                             .condition
@@ -162,7 +176,7 @@ fn build_block(
                 let choices = choices
                     .into_iter()
                     .map(|c| {
-                        let target = build_block(builder, c.body, current_id)?;
+                        let target = build_block(builder, c.body, current_id, loop_targets)?;
                         Ok(ChoiceDef {
                             text: c
                                 .text
@@ -175,6 +189,27 @@ fn build_block(
                     .collect::<Result<_, _>>()?;
                 builder.push(StepKind::Choice { choices })
             }
+            StmtKind::While { condition, body } => {
+                // The body leads back to the test, so the test needs its own id before the body can be compiled.
+                let test = builder.reserve();
+                let targets = LoopTargets {
+                    test,
+                    after: current_id,
+                };
+                let then = build_block(builder, body, test, Some(targets))?;
+
+                builder.fill(
+                    test,
+                    StepKind::Branch {
+                        condition: condition.value.try_into().expect("checked by the parser"),
+                        then,
+                        otherwise: current_id,
+                    },
+                );
+                test
+            }
+            StmtKind::Break => loop_targets.expect("checked by the parser").after,
+            StmtKind::Continue => loop_targets.expect("checked by the parser").test,
         };
     }
 

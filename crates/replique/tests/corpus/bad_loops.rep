@@ -1,0 +1,16 @@
+:= start
+[break]
+[continue]
+[while $gold < 5
+Alice: un
+[while 1 + 1]
+    Alice: deux
+[while true 2]
+    Alice: trois
+[while true]
+    [break oups]
+    [continue $x]
+-> Choisir
+    [break]
+Alice: quatre
+---

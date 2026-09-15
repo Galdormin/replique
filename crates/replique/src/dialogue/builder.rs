@@ -34,6 +34,9 @@ pub(crate) enum BuildError {
     /// An expr is [`crate::parser::expr::Expr::Error`] and should have not compiled
     #[error("An expr is in error")]
     ErrorInExpr,
+    /// An id handed out by [`DialogueNodeBuilder::reserve`] was never given its step.
+    #[error("Step {0:?} was reserved but never filled")]
+    UnfilledStep(StepId),
 }
 
 /// Collects the steps of one node until it can be closed.
@@ -42,16 +45,45 @@ pub(crate) enum BuildError {
 /// pushed before it. Building a node backwards, the way the
 /// [`compiler`](crate::dialogue::compiler) does, makes that fall into place on
 /// its own: a step is always pushed after the step it leads to.
+///
+/// A loop is the one shape that walk cannot serve, since its body leads back to
+/// the test that comes before it. [`reserve`](Self::reserve) hands out the id
+/// of a step that is not written yet, so the body can point at it, and
+/// [`fill`](Self::fill) puts the step in once the body is compiled. A reserved
+/// id that is never filled is a [`BuildError::UnfilledStep`].
 #[derive(Default)]
 pub(crate) struct DialogueNodeBuilder {
-    steps: Vec<StepKind>,
+    steps: Vec<Option<StepKind>>,
 }
 
 impl DialogueNodeBuilder {
     /// Add a step and return the id it can now be reached by.
     pub fn push(&mut self, kind: StepKind) -> StepId {
-        self.steps.push(kind);
+        self.steps.push(Some(kind));
         StepId((self.steps.len() - 1) as u32)
+    }
+
+    /// Take an id for a step that is not known yet.
+    ///
+    /// The id must be given its step with [`fill`](Self::fill) before the node
+    /// is closed.
+    pub fn reserve(&mut self) -> StepId {
+        self.steps.push(None);
+        StepId((self.steps.len() - 1) as u32)
+    }
+
+    /// Give a [`reserved`](Self::reserve) id its step.
+    ///
+    /// # Panics
+    ///
+    /// If `id` was not reserved, or was already filled.
+    pub fn fill(&mut self, id: StepId, kind: StepKind) {
+        let slot = self
+            .steps
+            .get_mut(id.id() as usize)
+            .expect("filling an id that was never handed out");
+        debug_assert!(slot.is_none(), "filling {id:?} twice");
+        *slot = Some(kind);
     }
 
     /// Close the node, starting on `entry`.
@@ -80,6 +112,7 @@ impl DialogueNodeBuilder {
             .enumerate()
             .map(|(id, kind)| {
                 let id = id as u32;
+                let kind = kind.ok_or(BuildError::UnfilledStep(StepId(id)))?;
 
                 // Self referencing target
                 match &kind {

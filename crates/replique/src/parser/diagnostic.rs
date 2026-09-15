@@ -160,6 +160,8 @@ pub enum DiagnosticKind {
     ExpectedKey,
     /// A dict naming the same key twice `{hp: 1, hp: 2}`
     DuplicateKey(String),
+    /// `[break]` or `[continue]` while no `[while]` is open.
+    StrayLoopControl(String),
 }
 
 impl DiagnosticKind {
@@ -203,7 +205,8 @@ impl DiagnosticKind {
             | AttributeOnNonVariable
             | UnclosedDict
             | ExpectedColon
-            | ExpectedKey => Severity::Error,
+            | ExpectedKey
+            | StrayLoopControl(_) => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -263,6 +266,7 @@ impl DiagnosticKind {
             ExpectedColon => "expected-colon",
             ExpectedKey => "expected-key",
             DuplicateKey(_) => "duplicate-key",
+            StrayLoopControl(_) => "stray-loop-control",
         }
     }
 }
@@ -367,6 +371,7 @@ impl fmt::Display for DiagnosticKind {
                 f,
                 "key `{key}` is given more than once, only the last value is kept"
             ),
+            StrayLoopControl(marker) => write!(f, "`{marker}` while not `[while]` is open"),
         }
     }
 }
