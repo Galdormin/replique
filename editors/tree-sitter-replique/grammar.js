@@ -10,11 +10,12 @@
 // with, and indentation only nests blocks. This grammar mirrors that first
 // pass and stays flat -- see README.md for why.
 
-// A run of text up to the end of the line, stopping before a `//` comment.
-const REST_OF_LINE = /([^\n/]|\/[^\/\n])+/;
+// A run of text up to the end of the line, stopping before a `//` comment or
+// the `[` of an inline expression.
+const REST_OF_LINE = /([^\n\[/]|\/[^\/\n])+/;
 
 // Same, but stopping at the first `:` as well: what precedes a speaker colon.
-const UNTIL_COLON = /([^\n:/]|\/[^\/\n:])*/;
+const UNTIL_COLON = /([^\n:\[/]|\/[^\/\n:])*/;
 
 // First character of a line that carries text rather than a marker. A marker
 // character is allowed when the one after it cannot complete a marker: `-> a`
@@ -47,6 +48,9 @@ module.exports = grammar({
         $.if_statement,
         $.elif_statement,
         $.else_statement,
+        $.while_statement,
+        $.break_statement,
+        $.continue_statement,
         $.say,
       ),
 
@@ -62,7 +66,9 @@ module.exports = grammar({
     node_name: ($) => $.identifier,
 
     // -> I can help if you want.
-    choice: ($) => seq("->", optional(field("text", $.text))),
+    // `prec.right` keeps an inline expression that opens the text attached to
+    // the marker, instead of reading it as a line of its own.
+    choice: ($) => prec.right(seq("->", optional(field("text", $.text)))),
 
     // >> play("bell", 0.5)
     command: ($) => seq(">>", field("call", $.call)),
@@ -83,11 +89,23 @@ module.exports = grammar({
     elif_statement: ($) => seq("[elif", field("condition", $._expression), "]"),
     else_statement: (_) => seq("[else", "]"),
 
+    // [while $gold < 5]
+    while_statement: ($) =>
+      seq("[while", field("condition", $._expression), "]"),
+
+    // [break] and [continue], which only mean something inside a `[while]`.
+    // Whether they are in one is the business of `replique-lsp`, which has the
+    // real AST -- see README.md.
+    break_statement: (_) => seq("[break", "]"),
+    continue_statement: (_) => seq("[continue", "]"),
+
     // Alice: Hi! / a line with no speaker
     say: ($) =>
       choice(
-        seq(field("speaker", $.speaker), optional(field("text", $.text))),
-        field("text", alias($._bare_text, $.text)),
+        prec.right(
+          seq(field("speaker", $.speaker), optional(field("text", $.text))),
+        ),
+        field("text", alias($._bare_text_line, $.text)),
       ),
 
     // The trailing `:` belongs to the token: it is what tells a speaker apart
@@ -105,9 +123,25 @@ module.exports = grammar({
         ),
       ),
 
+    // What a line says: runs of plain text and the inline expressions between
+    // them. `Bonjour [$nom] !` is three parts.
+    text: ($) => prec.right(repeat1(choice($.text_chunk, $.interpolation))),
+
+    // A line with no speaker.
+    _bare_text_line: ($) =>
+      prec.right(
+        seq(
+          choice(alias($._bare_text, $.text_chunk), $.interpolation),
+          repeat(choice($.text_chunk, $.interpolation)),
+        ),
+      ),
+
+    // [$nom] or [$argent * 100], read in the middle of a line.
+    interpolation: ($) => seq("[", $._expression, "]"),
+
     // Wins over `_bare_text` when both match, so that the text after a
     // speaker or a `->` stays part of that line instead of starting a new one.
-    text: (_) => token(prec(1, REST_OF_LINE)),
+    text_chunk: (_) => token(prec(1, REST_OF_LINE)),
 
     // --- Expressions ---------------------------------------------------
 

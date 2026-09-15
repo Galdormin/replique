@@ -1,0 +1,44 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+  $gold = 1
+say Alice "J'ai 1 pièces."
+  $gold = 2
+say Alice "J'ai 2 pièces."
+  $gold = 3
+say Alice "J'ai 3 pièces."
+say Alice "Je m'arrête là."
+  $i = 1
+say Alice "Tour 1."
+  $i = 3
+say Alice "Tour 3."
+  $i = 4
+say Alice "Tour 4."
+  $i = 5
+say Alice "Fini."
+  $n = 1
+choices ["Encore", "Assez"]
+  pick 0 "Encore"
+say Alice "Tour 1."
+  $n = 2
+choices ["Encore", "Assez"]
+  pick 0 "Encore"
+say Alice "Tour 2."
+say Alice "Un autre."
+  $m = 1
+  $n = 1
+say Alice "Tour 1-1"
+  $m = 2
+say Alice "Tour 1-2"
+  $m = 1
+  $n = 2
+say Alice "Tour 2-1"
+  $m = 2
+say Alice "Tour 2-2"
+  $m = 1
+  $n = 3
+say Alice "Tour 3-1"
+  $m = 2
+say Alice "Tour 3-2"
+end

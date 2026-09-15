@@ -4,7 +4,10 @@ use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
 use crate::parser::{
     END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
-    diagnostic::{DiagnosticKind, Diagnostics, Label},
+    diagnostic::{
+        DiagnosticKind::{self, StrayLoopControl},
+        Diagnostics, Label,
+    },
     expr::{Expr, ValueType, pratt},
     lines::{LineKind, RawLine, split_lines},
 };
@@ -48,6 +51,13 @@ pub enum StmtKind {
         /// Body of the `[else]`, when the block has one.
         otherwise: Option<Vec<Stmt>>,
     },
+    /// `[while]`
+    While {
+        condition: Spanned<Expr>,
+        body: Vec<Stmt>,
+    },
+    Break,
+    Continue,
 }
 
 /// One `[if <cond>]` or `[elif <cond>]`, and the block indented under it.
@@ -149,6 +159,8 @@ pub fn parse(src: &str) -> Parsed {
 struct Parser<'a> {
     lines: Peekable<IntoIter<RawLine<'a>>>,
     diags: Diagnostics,
+    /// Whether the statements being read are under a `[while]`
+    in_loop: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -156,6 +168,7 @@ impl<'a> Parser<'a> {
         Self {
             lines: lines.into_iter().peekable(),
             diags,
+            in_loop: false,
         }
     }
 
@@ -297,6 +310,7 @@ impl<'a> Parser<'a> {
             match line.kind {
                 LineKind::Choice(_) => out.push(self.parse_choice_group()),
                 LineKind::If(_) => out.push(self.parse_if()),
+                LineKind::While(_) => out.extend(self.parse_while()),
                 _ => out.extend(self.parse_line()),
             }
         }
@@ -427,6 +441,32 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `[while <cond>]` and the block indented under it, which is the only
+    /// place a `[break]` or a `[continue]` may be.
+    ///
+    /// A loop whose condition is dropped is dropped with its body, which
+    /// nothing would have run.
+    fn parse_while(&mut self) -> Option<Stmt> {
+        let line = self.bump().expect("Already checked by parse_block.");
+        let LineKind::While(cond) = line.kind else {
+            unreachable!("parse_while only starts on a While");
+        };
+
+        // The body is read even when the condition is faulty, so that what it
+        // holds is reported too, and so that the block is consumed either way.
+        let prev = std::mem::replace(&mut self.in_loop, true);
+        let body = self.parse_block(line.indent + 1);
+        self.in_loop = prev;
+
+        let span = body.last().map_or(line.span, |s| line.span.join(s.span));
+        let condition = self.parse_condition(cond, line.span, "[while]")?;
+
+        Some(Stmt {
+            kind: StmtKind::While { condition, body },
+            span,
+        })
+    }
+
     /// The condition of an `[if]` or an `[elif]`, which must be a `bool`.
     fn parse_condition(
         &mut self,
@@ -481,7 +521,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A marker that takes nothing, such as `[else]`.
+    /// A marker that takes nothing, such as `[else]` or `[break]`.
     fn expect_empty_bracket(&mut self, body: Spanned<&str>, line_span: Span, marker: &str) {
         let Some(inner) = self.strip_bracket(body, line_span, marker) else {
             return;
@@ -521,9 +561,7 @@ impl<'a> Parser<'a> {
             }
             LineKind::Command(cmd) => self.parse_command(cmd, line.span),
             LineKind::Let(body) => self.parse_let(body, line.span),
-            // The block under a branch with no `[if]` has nowhere to go
-            // either: reading and dropping it keeps the whole mistake to a
-            // single diagnostic.
+            // The block under a branch with no `[if]` has nowhere to go either
             LineKind::Elif(_) | LineKind::Else(_) => {
                 let marker = match line.kind {
                     LineKind::Elif(_) => "[elif]",
@@ -534,6 +572,28 @@ impl<'a> Parser<'a> {
                 self.parse_block(line.indent + 1);
                 None
             }
+            LineKind::Break(s) | LineKind::Continue(s) => {
+                let marker = match line.kind {
+                    LineKind::Break(_) => "[break]",
+                    _ => "[continue]",
+                };
+
+                // Not in while loop
+                if !self.in_loop {
+                    self.diags.push(line.span, StrayLoopControl(marker.into()));
+                    return None;
+                }
+
+                // report diagnostic from malformed braket `[break` or `[continue $name]`
+                self.expect_empty_bracket(s, line.span, marker);
+                Some(Stmt {
+                    kind: match line.kind {
+                        LineKind::Break(_) => StmtKind::Break,
+                        _ => StmtKind::Continue,
+                    },
+                    span: line.span,
+                })
+            }
             LineKind::Malformed(marker) => {
                 self.diags.push(
                     line.span,
@@ -541,7 +601,11 @@ impl<'a> Parser<'a> {
                 );
                 None
             }
-            LineKind::If(_) | LineKind::Choice(_) | LineKind::NodeStart(_) | LineKind::NodeEnd => {
+            LineKind::If(_)
+            | LineKind::While(_)
+            | LineKind::Choice(_)
+            | LineKind::NodeStart(_)
+            | LineKind::NodeEnd => {
                 debug_assert!(false, "handle by parse_block");
                 None
             }

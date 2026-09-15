@@ -12,14 +12,6 @@ so the grammar mirrors the first pass of the Rust parser (`parser::lines`) and
 stops there. Nesting stays the business of `replique-lsp`, which has the real
 AST.
 
-Two consequences, both cosmetic:
-
-- A line of text starting with `[` is read as a bracketed marker. `[if`, `[let`,
-  `[elif` and `[else` must win over text, and tree-sitter picks the longest
-  match, so text cannot be allowed to start with `[`.
-- A `speaker` node includes its trailing `:`. The colon is what tells a speaker
-  apart from a plain line, so it has to be part of the token.
-
 ## Working on it
 
 ```sh

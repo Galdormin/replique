@@ -14,9 +14,11 @@ Just a narration line.
     (node_name (identifier)))
   (say
     (speaker)
-    (text))
+    (text
+      (text_chunk)))
   (say
-    (text))
+    (text
+      (text_chunk)))
   (node_end))
 
 ================================================================================
@@ -30,7 +32,8 @@ Choices and jumps
 
 (source_file
   (choice
-    (text))
+    (text
+      (text_chunk)))
   (jump
     (node_name (identifier))))
 
@@ -91,5 +94,61 @@ Alice: Hi // trailing
   (comment)
   (say
     (speaker)
-    (text))
+    (text
+      (text_chunk)))
   (comment))
+
+================================================================================
+Loops
+================================================================================
+
+[while $gold < 5]
+[break]
+[continue]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (while_statement
+    (binary_expression
+      (variable)
+      (number)))
+  (break_statement)
+  (continue_statement))
+
+================================================================================
+Inline expressions
+================================================================================
+
+Alice: Bonjour [$nom], il te reste [$joueur.pv] points.
+[$nom] ouvre la porte.
+-> Payer [$argent * 100] centimes
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (say
+    (speaker)
+    (text
+      (text_chunk)
+      (interpolation
+        (variable))
+      (text_chunk)
+      (interpolation
+        (attribute_expression
+          (variable)
+          (attribute)))
+      (text_chunk)))
+  (say
+    (text
+      (interpolation
+        (variable))
+      (text_chunk)))
+  (choice
+    (text
+      (text_chunk)
+      (interpolation
+        (binary_expression
+          (variable)
+          (number)))
+      (text_chunk))))

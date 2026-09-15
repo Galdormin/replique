@@ -1,0 +1,38 @@
+:= start
+[let $gold = 0]
+[while $gold < 3]
+    [let $gold = $gold + 1]
+    Alice: J'ai [$gold] pièces.
+Alice: Je m'arrête là.
+
+[let $i = 0]
+[while true]
+    [let $i = $i + 1]
+    [if $i == 2]
+        [continue]
+    [if $i > 4]
+        [break]
+    Alice: Tour [$i].
+Alice: Fini.
+
+[let $n = 0]
+[while $n < 2]
+    [let $n = $n + 1]
+    -> Encore
+        Alice: Tour [$n].
+    -> Assez
+        [break]
+Alice: Un autre.
+
+[let $n = 0]
+[while $n < 3]
+    [let $n = $n + 1]
+    [let $m = 0]
+    [while $m < 3]
+        [let $m = $m + 1]
+        Alice: Tour [$n]-[$m]
+        [if $m == 1]
+            [continue]
+        [elif $m == 2]
+            [break]
+---

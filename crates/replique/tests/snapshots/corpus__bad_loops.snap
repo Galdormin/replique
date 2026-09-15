@@ -1,0 +1,24 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "un" @5:1 "Alice: un"
+  while "true" @10:1 "[while true]\n    [break oups]\n    [continue $x]"
+    break @11:5 "[break oups]"
+    continue @12:5 "[continue $x]"
+  choice-group @13:1 "-> Choisir"
+    choice "Choisir" @13:1 "-> Choisir"
+  line Alice "quatre" @15:1 "Alice: quatre"
+
+== diagnostics ==
+error stray-loop-control @2:1 "[break]"
+error stray-loop-control @3:1 "[continue]"
+error unclosed-bracket @4:1 "[while $gold < 5"
+error condition-not-a-bool @6:8 "1 + 1"
+error unexpected-text-in-bracket @8:13 "2"
+error unexpected-text-in-bracket @11:12 "oups"
+error unexpected-text-in-bracket @12:15 "$x"
+error stray-loop-control @14:5 "[break]"
+warning single-choice @13:1 "-> Choisir"
