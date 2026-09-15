@@ -88,16 +88,21 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
             StmtKind::Jump(target) => {
                 let _ = writeln!(out, "{pad}jump {} {}", target.value, at(src, stmt.span));
             }
-            StmtKind::Command { name, args } => {
+            StmtKind::Command {
+                name,
+                args,
+                awaited,
+            } => {
                 // Arguments are shown as the text they cover: an expression
                 // debug-prints its own spans, which the doc above forbids.
                 let args = args
                     .iter()
                     .map(|arg| &src.raw[arg.span.start..arg.span.end])
                     .collect::<Vec<_>>();
+                let await_marker = if *awaited { "await " } else { "" };
                 let _ = writeln!(
                     out,
-                    "{pad}command {} {:?} {}",
+                    "{pad}command {await_marker}{} {:?} {}",
                     name.value,
                     args,
                     at(src, stmt.span)

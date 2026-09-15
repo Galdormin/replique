@@ -324,4 +324,5 @@ impl Value {
 pub(crate) struct Command {
     pub name: String,
     pub args: Vec<Expr>,
+    pub awaited: bool,
 }

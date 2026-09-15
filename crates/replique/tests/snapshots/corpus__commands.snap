@@ -14,7 +14,8 @@ node start
     choice "Non" @8:1 "-> Non\n    >> set_flag(sourd, -1)"
       command set_flag ["sourd", "-1"] @9:8 "set_flag(sourd, -1)"
   command play ["\"cloche\"", "0.5 + 1", "true"] @10:4 "play(\"cloche\", 0.5 + 1, true)"
-  command fade_out [] @11:4 "fade_out()"
+  command await play_anim ["\"salut\""] @11:10 "play_anim(\"salut\")"
+  command await fade_out [] @12:10 "fade_out()"
 
 == diagnostics ==
 (none)

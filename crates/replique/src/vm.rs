@@ -74,7 +74,11 @@ pub enum DialogueEvent {
     /// A command for the host to interpret, such as `>> add_scene(Alice)`.
     /// Meaning and arguments are entirely up to the host. Resume with
     /// [`ResumeEvent::Advance`], immediately or once the command is over.
-    Command { name: String, args: Vec<Value> },
+    Command {
+        name: String,
+        args: Vec<Value>,
+        awaited: bool,
+    },
     /// A choice to offer to the player. Resume with
     /// [`ResumeEvent::Select`] carrying the index of the chosen entry.
     Choices {
@@ -356,6 +360,7 @@ impl DialogueVm {
                     return Ok(DialogueEvent::Command {
                         name: command.name,
                         args,
+                        awaited: command.awaited,
                     });
                 }
                 StepKind::Set {
@@ -543,6 +548,7 @@ mod tests {
                     Expr::Litteral(Value::String("bell".into())),
                     Expr::Litteral(Value::Float(0.5)),
                 ],
+                awaited: false,
             },
             next: l1,
         });
@@ -693,7 +699,7 @@ mod tests {
         vm.start(command_dialogue(), "start").unwrap();
         let event = vm.resume(ResumeEvent::Advance).unwrap();
 
-        let DialogueEvent::Command { name, args } = event else {
+        let DialogueEvent::Command { name, args, .. } = event else {
             panic!("expected a Command event");
         };
         assert_eq!(name, "play");
@@ -788,6 +794,7 @@ mod tests {
             command: Command {
                 name: "show".into(),
                 args: vec![Expr::Var("gold".into())],
+                awaited: false,
             },
             next: end,
         });
@@ -802,7 +809,7 @@ mod tests {
 
     fn expect_command(event: DialogueEvent) -> (String, Vec<Value>) {
         match event {
-            DialogueEvent::Command { name, args } => (name, args),
+            DialogueEvent::Command { name, args, .. } => (name, args),
             _ => panic!("expected a Command event"),
         }
     }
@@ -825,6 +832,7 @@ mod tests {
             command: Command {
                 name: "show".into(),
                 args: vec![Expr::Var("gold".into())],
+                awaited: false,
             },
             next: end,
         });
@@ -1215,6 +1223,7 @@ mod tests {
             command: Command {
                 name: "show".into(),
                 args: vec![call("double", vec![lit(3)]), lit(1)],
+                awaited: false,
             },
             next: end,
         });

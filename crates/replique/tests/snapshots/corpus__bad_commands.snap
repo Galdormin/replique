@@ -15,6 +15,9 @@ node start
   line Alice "sept" @15:1 "Alice: sept"
   command play ["\"a\" - 1"] @16:4 "play(\"a\" - 1)"
   line Alice "huit" @17:1 "Alice: huit"
+  line Alice "neuf" @19:1 "Alice: neuf"
+  line Alice "dix" @21:1 "Alice: dix"
+  line Alice "onze" @23:1 "Alice: onze"
 
 == diagnostics ==
 error empty-command @2:1 ">>"
@@ -27,3 +30,6 @@ error expected-command @14:4 "play"
 error invalid-binary-operands @16:9 "\"a\" - 1"
   label string @16:9 "\"a\""
   label int @16:15 "1"
+error reserved-command-name @18:4 "await"
+error reserved-command-name @20:4 "await"
+error invalid-command-name @22:10 "2fast"

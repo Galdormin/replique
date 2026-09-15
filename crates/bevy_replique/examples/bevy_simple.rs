@@ -44,9 +44,9 @@ enum Waiting {
     #[default]
     Nothing,
     /// A [`DialogueLine`] is displayed, waiting for [`ResumeInput::Advance`].
-    Line(Entity),
+    Line(DialogueToken),
     /// A [`DialogueChoices`] is displayed, waiting for [`ResumeInput::Select`].
-    Choices { runner: Entity, count: usize },
+    Choices { token: DialogueToken, count: usize },
 }
 
 /// Text node showing the current line.
@@ -108,7 +108,7 @@ fn show_line(
             None => line.text.clone(),
         };
         choices_text.0 = "[Space] continue".to_string();
-        *waiting = Waiting::Line(line.runner);
+        *waiting = Waiting::Line(line.token);
     }
 }
 
@@ -125,7 +125,7 @@ fn show_choices(
             .collect::<Vec<_>>()
             .join("\n");
         *waiting = Waiting::Choices {
-            runner: message.runner,
+            token: message.token,
             count: message.choices.len(),
         };
     }
@@ -151,20 +151,20 @@ fn handle_input(
 ) {
     match *waiting {
         Waiting::Nothing => (),
-        Waiting::Line(runner) => {
+        Waiting::Line(token) => {
             if keys.just_pressed(KeyCode::Space) {
                 resume.write(ResumeDialogue {
-                    runner,
+                    token,
                     input: ResumeInput::Advance,
                 });
                 *waiting = Waiting::Nothing;
             }
         }
-        Waiting::Choices { runner, count } => {
+        Waiting::Choices { token, count } => {
             for (index, key) in CHOICE_KEYS.iter().take(count).enumerate() {
                 if keys.just_pressed(*key) {
                     resume.write(ResumeDialogue {
-                        runner,
+                        token,
                         input: ResumeInput::Select(index),
                     });
                     *waiting = Waiting::Nothing;

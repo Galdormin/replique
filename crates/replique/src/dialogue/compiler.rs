@@ -127,13 +127,18 @@ fn build_block(
                 },
                 next: current_id,
             }),
-            StmtKind::Command { name, args } => builder.push(StepKind::Command {
+            StmtKind::Command {
+                name,
+                args,
+                awaited,
+            } => builder.push(StepKind::Command {
                 command: Command {
                     name: name.into_inner(),
                     args: args
                         .into_iter()
                         .map(|v| v.value.try_into())
                         .collect::<Result<_, _>>()?,
+                    awaited,
                 },
                 next: current_id,
             }),

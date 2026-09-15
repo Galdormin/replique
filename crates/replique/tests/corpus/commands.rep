@@ -8,5 +8,6 @@ Alice: Tu entends ça ?
 -> Non
     >> set_flag(sourd, -1)
 >> play("cloche", 0.5 + 1, true)
->> fade_out()
+>> await play_anim("salut")
+>> await fade_out()
 ---

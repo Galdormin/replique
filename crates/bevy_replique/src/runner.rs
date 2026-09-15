@@ -7,7 +7,7 @@ use bevy::{
         system::Local,
         world::World,
     },
-    log::error,
+    log::{error, warn},
 };
 use replique::{
     dialogue::{Dialogue, NodeName},
@@ -16,7 +16,7 @@ use replique::{
 
 use crate::{
     asset::RepliqueDialogue,
-    function::DialogueHost,
+    call::{DialogueToken, function::DialogueHost},
     message::{
         DialogueChoice, DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine,
         ResumeDialogue, StartDialogue,
@@ -28,6 +28,7 @@ pub struct DialogueRunner {
     dialogue: Handle<RepliqueDialogue>,
     vm: DialogueVm,
     pending_start: Option<NodeName>,
+    seq: u64,
 }
 
 impl DialogueRunner {
@@ -36,26 +37,47 @@ impl DialogueRunner {
             dialogue,
             vm: DialogueVm::default(),
             pending_start: None,
+            seq: 0,
         }
+    }
+
+    /// The ticket of the suspension this runner is on. `runner` is the entity
+    pub(crate) fn current_token(&self, runner: Entity) -> DialogueToken {
+        DialogueToken::new(self.seq, runner)
+    }
+
+    /// Opens the next suspension, which voids the ticket of the previous one.
+    pub(crate) fn generate_token(&mut self, runner: Entity) -> DialogueToken {
+        self.seq += 1;
+        self.current_token(runner)
     }
 }
 
 /// Hands the event the VM stopped on to whoever is listening.
-fn emit(world: &mut World, runner: Entity, event: DialogueEvent) {
+fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
     match event {
         DialogueEvent::Say { speaker, text } => {
             world.write_message(DialogueLine {
-                runner,
+                token,
                 speaker,
                 text,
             });
         }
-        DialogueEvent::Command { name, args } => {
-            world.write_message(DialogueCommand { runner, name, args });
+        DialogueEvent::Command {
+            name,
+            args,
+            awaited,
+        } => {
+            world.write_message(DialogueCommand {
+                token,
+                name,
+                args,
+                awaited,
+            });
         }
         DialogueEvent::Choices { choices } => {
             world.write_message(DialogueChoices {
-                runner,
+                token,
                 choices: choices
                     .into_iter()
                     .enumerate()
@@ -64,7 +86,9 @@ fn emit(world: &mut World, runner: Entity, event: DialogueEvent) {
             });
         }
         DialogueEvent::Finished => {
-            world.write_message(DialogueFinished { runner });
+            world.write_message(DialogueFinished {
+                runner: token.runner(),
+            });
         }
     }
 }
@@ -80,10 +104,13 @@ fn run(
         error!("Try to run an unknown DialogueRunner");
         return;
     };
+
+    // Generate the token for the response even if we don't need one.
+    let token = component.generate_token(runner);
     let mut vm = std::mem::take(&mut component.vm);
 
     let result = {
-        let mut host = DialogueHost::new(world, runner);
+        let mut host = DialogueHost::new(world, token);
         with(&mut vm, &mut host)
     };
 
@@ -92,7 +119,7 @@ fn run(
     }
 
     match result {
-        Ok(event) => emit(world, runner, event),
+        Ok(event) => emit(world, token, event),
         Err(err) => error!("{err}"),
     }
 }
@@ -134,7 +161,7 @@ pub(super) fn start_dialogue(world: &mut World, mut cursor: Local<MessageCursor<
     }
 }
 
-pub(super) fn start_pending_dialogue(world: &mut World) {
+pub(crate) fn start_pending_dialogue(world: &mut World) {
     let mut query = world.query::<(Entity, &DialogueRunner)>();
     let waiting: Vec<Entity> = query
         .iter(world)
@@ -160,7 +187,7 @@ pub(super) fn start_pending_dialogue(world: &mut World) {
     }
 }
 
-pub(super) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor<ResumeDialogue>>) {
+pub(crate) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor<ResumeDialogue>>) {
     let pending: Vec<ResumeDialogue> = {
         let Some(messages) = world.get_resource::<Messages<ResumeDialogue>>() else {
             return;
@@ -169,7 +196,19 @@ pub(super) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor
     };
 
     for resume in pending {
-        run(world, resume.runner, |vm, host| {
+        let runner = resume.token.runner();
+
+        // A runner is resumed with an outdated token
+        let stale = world
+            .get::<DialogueRunner>(runner)
+            .is_some_and(|component| component.current_token(runner) != resume.token);
+
+        if stale {
+            warn!("Ignore an  resume for a dialogue that has already moved on");
+            continue;
+        }
+
+        run(world, runner, |vm, host| {
             vm.resume_with(host, resume.input.to_resume_event())
         });
     }
@@ -181,7 +220,11 @@ mod tests {
     use replique::{RepliqueFile, parser::diagnostic::Color};
 
     use super::*;
-    use crate::{function::DialogueFunctionAppExt, plugin::RepliquePLugin};
+    use crate::{
+        call::{CurrentDialogueCall, DialogueCall, function::DialogueFunctionAppExt},
+        message::{ResumeInput, StartDialogue},
+        plugin::RepliquePLugin,
+    };
 
     fn app() -> App {
         let mut app = App::new();
@@ -215,6 +258,25 @@ mod tests {
         app.update();
     }
 
+    /// The token the line of this frame arrived with.
+    fn line_token(app: &App) -> DialogueToken {
+        app.world()
+            .resource::<Messages<DialogueLine>>()
+            .iter_current_update_messages()
+            .map(|line| line.token)
+            .next()
+            .expect("a line this frame")
+    }
+
+    /// Answers whatever is suspended, and lets the frame carry it out.
+    fn resume(app: &mut App, token: DialogueToken) {
+        app.world_mut().write_message(ResumeDialogue {
+            token,
+            input: ResumeInput::Advance,
+        });
+        app.update();
+    }
+
     /// The lines written this frame.
     fn lines(app: &App) -> Vec<String> {
         app.world()
@@ -222,6 +284,51 @@ mod tests {
             .iter_current_update_messages()
             .map(|line| line.text.clone())
             .collect()
+    }
+
+    #[test]
+    fn a_resume_for_a_suspension_already_left_is_ignored() {
+        let mut app = app();
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start\nAlice: un\nAlice: deux\nAlice: trois\n---\n",
+        );
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+        assert_eq!(lines(&app), ["un"]);
+        let spent = line_token(&app);
+
+        resume(&mut app, spent);
+        assert!(lines(&app).contains(&"deux".to_string()));
+
+        resume(&mut app, spent);
+        assert!(!lines(&app).contains(&"trois".to_string()));
+
+        resume(&mut app, DialogueToken::new(2, runner));
+        assert!(lines(&app).contains(&"trois".to_string()));
+    }
+
+    #[test]
+    fn a_function_reads_the_dialogue_that_is_asking() {
+        fn who(In(()): In<()>, call: DialogueCall) -> String {
+            format!(
+                "{} {}",
+                call.runner(),
+                call.token() == call.token_of(call.runner()).unwrap()
+            )
+        }
+
+        let mut app = app();
+        app.add_dialogue_function_named("who", who);
+        let dialogue = add_dialogue(&mut app, ":= start\nAlice: [who()]\n---\n");
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+
+        assert_eq!(lines(&app), [format!("{runner} true")]);
+        // And it was taken back once the answer was given.
+        assert!(!app.world().contains_resource::<CurrentDialogueCall>());
     }
 
     /// `[upper_new("bob")]`, answered by a system that reads nothing.

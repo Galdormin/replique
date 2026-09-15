@@ -156,7 +156,7 @@ enum Waiting {
     #[default]
     Nothing,
     /// A [`DialogueLine`] is displayed, waiting for [`ResumeInput::Advance`].
-    Line(Entity),
+    Line(DialogueToken),
 }
 
 /// Column the portraits are added to.
@@ -232,7 +232,7 @@ fn show_line(
             };
         }
 
-        *waiting = Waiting::Line(line.runner);
+        *waiting = Waiting::Line(line.token);
     }
 }
 
@@ -252,11 +252,11 @@ fn handle_input(
     mut waiting: ResMut<Waiting>,
     mut resume: MessageWriter<ResumeDialogue>,
 ) {
-    if let Waiting::Line(runner) = *waiting
+    if let Waiting::Line(token) = *waiting
         && keys.just_pressed(KeyCode::Space)
     {
         resume.write(ResumeDialogue {
-            runner,
+            token,
             input: ResumeInput::Advance,
         });
         *waiting = Waiting::Nothing;

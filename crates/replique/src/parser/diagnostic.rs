@@ -106,6 +106,8 @@ pub enum DiagnosticKind {
     ExpectedCommand,
     /// Command name that is not `[A-Za-z_][A-Za-z0-9_]*`.
     InvalidCommandName(String),
+    /// Command name that the language keeps for itself: `>> await()`.
+    ReservedCommandName(String),
     /// `(` never closed.
     UnclosedCall,
     /// An argument that is not a value: `1..2`, `"oups`, ...
@@ -185,6 +187,7 @@ impl DiagnosticKind {
             | EmptyCommand
             | ExpectedCommand
             | InvalidCommandName(_)
+            | ReservedCommandName(_)
             | UnclosedCall
             | InvalidCommandArgument(_)
             | UnterminatedString
@@ -243,6 +246,7 @@ impl DiagnosticKind {
             EmptyCommand => "empty-command",
             ExpectedCommand => "expected-command",
             InvalidCommandName(_) => "invalid-command-name",
+            ReservedCommandName(_) => "reserved-command-name",
             UnclosedCall => "unclosed-call",
             InvalidCommandArgument(_) => "invalid-command-argument",
             TrailingAfterCommand => "trailing-after-command",
@@ -314,6 +318,10 @@ impl fmt::Display for DiagnosticKind {
             InvalidCommandName(name) => write!(
                 f,
                 "`{name}` is an invalid command name, expected a letter or `_` followed by letters, digits or `_`",
+            ),
+            ReservedCommandName(name) => write!(
+                f,
+                "`{name}` is a reserved word, expected a command name after it",
             ),
             UnclosedCall => f.write_str("`(` is never closed, expected `)` at the end of the line"),
             InvalidCommandArgument(arg) => write!(

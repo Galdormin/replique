@@ -39,8 +39,8 @@ fn derive_enum(name: &Ident, data: &DataEnum) -> syn::Result<TokenStream> {
     Ok(quote! {
         impl FromDialogueArgs for #name {
             fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-                let __got = args.args.len();
-                let mut __values = args.args.into_iter();
+                let __got = args.0.len();
+                let mut __values = args.0.into_iter();
 
                 let __word = String::from_maybe_value(__values.next())
                     .map_err(|source| DialogueArgsError::Argument { index: 0, source })?;
@@ -73,7 +73,7 @@ fn derive_struct(name: &Ident, data: &DataStruct) -> syn::Result<TokenStream> {
     let body = Body::read(&data.fields, 0)?;
     let arity = body.arity_check();
     let values = body.takes_args.then(|| {
-        quote! { let mut __values = args.args.into_iter(); }
+        quote! { let mut __values = args.0.into_iter(); }
     });
     let Body {
         read, construct, ..
@@ -82,7 +82,7 @@ fn derive_struct(name: &Ident, data: &DataStruct) -> syn::Result<TokenStream> {
     Ok(quote! {
         impl FromDialogueArgs for #name {
             fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-                let __got = args.args.len();
+                let __got = args.0.len();
                 #arity
                 #values
                 #read
@@ -125,21 +125,7 @@ impl Body {
                 .unwrap_or_else(|| format_ident!("__arg{position}"));
             let ty = &field.ty;
 
-            let runner = marked(field, "runner");
             let variadic = marked(field, "variadic");
-
-            if runner && variadic {
-                return Err(syn::Error::new(
-                    field.span(),
-                    "`#[runner]` and `#[variadic]` are not valid on the same field",
-                ));
-            }
-
-            if runner {
-                read.extend(quote! { let #local = args.runner; });
-                locals.push(local);
-                continue;
-            }
 
             if variadic_seen {
                 return Err(syn::Error::new(
@@ -208,7 +194,7 @@ impl Body {
     }
 }
 
-/// `#[runner]` and `#[variadic]` are present withut `replique`
+/// `#[variadic]` is present without `replique`
 fn marked(field: &Field, name: &str) -> bool {
     field.attrs.iter().any(|attr| attr.path().is_ident(name))
 }

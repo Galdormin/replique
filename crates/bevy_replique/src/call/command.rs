@@ -56,6 +56,8 @@
 //! takes the name as a string instead, for a system the attribute cannot be
 //! put on.
 
+use std::fmt::Display;
+
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     platform::collections::HashMap,
@@ -63,12 +65,73 @@ use bevy::{
 };
 
 use crate::{
-    args::{DialogueArgs, FromDialogueArgs},
+    call::{
+        CurrentDialogueCall,
+        args::{DialogueArgs, FromDialogueArgs},
+    },
     message::{DialogueCommand, ResumeDialogue, ResumeInput},
 };
 
-/// Converts the call, then runs the system registered for it.
-type CommandRunner = Box<dyn Fn(&mut World, DialogueArgs) + Send + Sync>;
+/// What a command answers about the dialogue that called it.
+///
+/// A command that returns `()` is [`Immediate`]: the runner resumes the
+/// dialogue itself, as soon as the command has run. Returning a `CommandFlow`
+/// is how a command says it may need longer than that.
+///
+/// [`Blocking`] only takes effect on a `>> await command()`. The dialogue
+/// then stays suspended until the game sends a [`ResumeDialogue`] carrying the
+/// [`DialogueToken`] of the call, which [`DialogueCall::token`] hands over.
+/// Without the `await`, the call site has not asked to wait: the runner
+/// resumes as it would for [`Immediate`], and logs the disagreement.
+///
+/// [`Immediate`]: Self::Immediate
+/// [`Blocking`]: Self::Blocking
+/// [`DialogueToken`]: crate::call::DialogueToken
+/// [`DialogueCall::token`]: crate::call::DialogueCall::token
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandFlow {
+    /// The runner resumes the dialogue on its own.
+    Immediate,
+    /// The game resumes the dialogue, once whatever the command started is
+    /// over. Only honoured on an awaited call.
+    Blocking,
+}
+
+pub trait IntoCommandFlow {
+    fn into_flow(self) -> CommandFlow;
+}
+
+impl IntoCommandFlow for () {
+    fn into_flow(self) -> CommandFlow {
+        CommandFlow::Immediate
+    }
+}
+
+impl IntoCommandFlow for CommandFlow {
+    fn into_flow(self) -> CommandFlow {
+        self
+    }
+}
+
+impl<V, E> IntoCommandFlow for Result<V, E>
+where
+    V: IntoCommandFlow,
+    E: Display,
+{
+    fn into_flow(self) -> CommandFlow {
+        match self {
+            Ok(val) => val.into_flow(),
+            Err(err) => {
+                error!("{err}");
+                CommandFlow::Immediate
+            }
+        }
+    }
+}
+
+/// Converts the call, runs the system registered for it, and reports what it
+/// answered about the dialogue.
+type CommandRunner = Box<dyn Fn(&mut World, DialogueArgs) -> CommandFlow + Send + Sync>;
 
 #[derive(Resource, Default)]
 pub(crate) struct DialogueCommandRegistry {
@@ -184,23 +247,25 @@ pub trait DialogueCommandAppExt {
     /// Registering the same name twice keeps the last system.
     ///
     /// [`add_dialogue_command`]: DialogueCommandAppExt::add_dialogue_command
-    fn add_dialogue_command_named<T, M>(
+    fn add_dialogue_command_named<T, O, M>(
         &mut self,
         name: impl Into<String>,
-        system: impl IntoSystem<In<T>, (), M> + 'static,
-    ) -> &mut Self
-    where
-        T: FromDialogueArgs + Send + Sync + 'static;
-}
-
-impl DialogueCommandAppExt for App {
-    fn add_dialogue_command_named<T, M>(
-        &mut self,
-        name: impl Into<String>,
-        system: impl IntoSystem<In<T>, (), M> + 'static,
+        system: impl IntoSystem<In<T>, O, M> + 'static,
     ) -> &mut Self
     where
         T: FromDialogueArgs + Send + Sync + 'static,
+        O: IntoCommandFlow + 'static;
+}
+
+impl DialogueCommandAppExt for App {
+    fn add_dialogue_command_named<T, O, M>(
+        &mut self,
+        name: impl Into<String>,
+        system: impl IntoSystem<In<T>, O, M> + 'static,
+    ) -> &mut Self
+    where
+        T: FromDialogueArgs + Send + Sync + 'static,
+        O: IntoCommandFlow + 'static,
     {
         let name = name.into();
         let world = self.world_mut();
@@ -208,13 +273,22 @@ impl DialogueCommandAppExt for App {
 
         let label = name.clone();
         let run: CommandRunner = Box::new(move |world, args| {
+            // A call that never reached its system cannot be waiting on
+            // anything: whatever the signature says, the dialogue carries on.
             let input = match T::from_dialogue_args(args) {
                 Ok(input) => input,
-                Err(err) => return error!("dialogue command `{label}`: {err}"),
+                Err(err) => {
+                    error!("dialogue command `{label}`: {err}");
+                    return CommandFlow::Immediate;
+                }
             };
 
-            if let Err(err) = world.run_system_with(id, input) {
-                error!("dialogue command `{label}` failed: {err}");
+            match world.run_system_with(id, input) {
+                Ok(out) => out.into_flow(),
+                Err(err) => {
+                    error!("dialogue command `{label}` failed: {err}");
+                    CommandFlow::Immediate
+                }
             }
         });
 
@@ -236,7 +310,7 @@ impl DialogueCommandAppExt for App {
 }
 
 /// Runs the registered commands, then resumes their runner.
-pub(super) fn run_dialogue_commands(
+pub(crate) fn run_dialogue_commands(
     world: &mut World,
     mut cursor: Local<MessageCursor<DialogueCommand>>,
 ) {
@@ -255,23 +329,44 @@ pub(super) fn run_dialogue_commands(
     // get the `&mut World` they need. They cannot register a command in turn.
     world.resource_scope(|world, registry: Mut<DialogueCommandRegistry>| {
         for command in pending {
-            if let Some(func) = registry.commands.get(&command.name) {
-                func(
-                    world,
-                    DialogueArgs {
-                        runner: command.runner,
-                        args: command.args,
-                    },
-                );
-            } else {
-                // Command not found raise an error but resume the dialogue
-                error!("dialogue command {}: not found in registry", command.name);
-            }
+            let flow = match registry.commands.get(&command.name) {
+                Some(func) => {
+                    // Posed for the duration of the call, and around it rather
+                    // than inside, so that an early return still takes it back.
+                    world.insert_resource(CurrentDialogueCall(command.token));
+                    let flow = func(world, DialogueArgs(command.args));
+                    world.remove_resource::<CurrentDialogueCall>();
+                    flow
+                }
+                None => {
+                    // Command not found raise an error but resume the dialogue
+                    error!("dialogue command {}: not found in registry", command.name);
+                    CommandFlow::Immediate
+                }
+            };
 
-            world.write_message(ResumeDialogue {
-                runner: command.runner,
-                input: ResumeInput::Advance,
-            });
+            // Both sides have to agree: the dialogue asks to wait with
+            // `await`, the command answers whether it has something to wait
+            // for. Either one alone carries on.
+            let waits = match (command.awaited, flow) {
+                (true, CommandFlow::Blocking) => true,
+                (false, CommandFlow::Blocking) => {
+                    warn!(
+                        "dialogue command `{}` asked to block, but the line does not `await` it: \
+                         the dialogue carries on",
+                        command.name
+                    );
+                    false
+                }
+                (_, CommandFlow::Immediate) => false,
+            };
+
+            if !waits {
+                world.write_message(ResumeDialogue {
+                    token: command.token,
+                    input: ResumeInput::Advance,
+                });
+            }
         }
     });
 }
@@ -282,7 +377,10 @@ mod tests {
     use replique::dialogue::Value;
 
     use super::*;
-    use crate::plugin::RepliquePLugin;
+    use crate::{
+        call::{DialogueCall, DialogueToken},
+        plugin::RepliquePLugin,
+    };
 
     /// What a test command writes down, to prove it ran and with what.
     #[derive(Resource, Default, Debug, PartialEq)]
@@ -302,10 +400,20 @@ mod tests {
 
     /// Sends the command and lets the frame run it.
     fn call(app: &mut App, runner: Entity, name: &str, args: Vec<Value>) {
+        call_with(app, runner, name, args, false);
+    }
+
+    /// The same, for a `>> await name()` line.
+    fn call_awaited(app: &mut App, runner: Entity, name: &str, args: Vec<Value>) {
+        call_with(app, runner, name, args, true);
+    }
+
+    fn call_with(app: &mut App, runner: Entity, name: &str, args: Vec<Value>, awaited: bool) {
         app.world_mut().write_message(DialogueCommand {
-            runner,
+            token: DialogueToken::new(0, runner),
             name: name.to_string(),
             args,
+            awaited,
         });
         app.update();
     }
@@ -318,7 +426,7 @@ mod tests {
         app.world()
             .resource::<Messages<ResumeDialogue>>()
             .iter_current_update_messages()
-            .map(|resume| resume.runner)
+            .map(|resume| resume.token.runner())
             .collect()
     }
 
@@ -364,9 +472,9 @@ mod tests {
     }
 
     #[test]
-    fn raw_arguments_and_the_runner_stay_reachable() {
+    fn raw_arguments_stay_reachable() {
         fn any(In(args): In<DialogueArgs>, mut ran: ResMut<Ran>) {
-            ran.0.push(format!("{:?} {}", args.runner, args.len()));
+            ran.0.push(format!("{}", args.0.len()));
         }
 
         let mut app = app();
@@ -375,7 +483,7 @@ mod tests {
 
         call(&mut app, runner, "any", vec![Value::Bool(true)]);
 
-        assert_eq!(ran(&app), [format!("{runner:?} 1")]);
+        assert_eq!(ran(&app), ["1".to_string()]);
     }
 
     #[test]
@@ -424,6 +532,125 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// The two halves of the decision: the line asks to wait, the command
+    /// answers that it has something to wait for. Only both together suspend.
+    #[test]
+    fn an_awaited_blocking_command_leaves_its_runner_suspended() {
+        fn play_anim(In(()): In<()>, mut ran: ResMut<Ran>) -> CommandFlow {
+            ran.0.push("started".into());
+            CommandFlow::Blocking
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("play_anim", play_anim);
+        let runner = spawn_runner(&mut app);
+
+        call_awaited(&mut app, runner, "play_anim", vec![]);
+
+        // It ran, and the dialogue is now the game's to resume.
+        assert_eq!(ran(&app), ["started"]);
+        assert_eq!(resumed(&app), [] as [Entity; 0]);
+    }
+
+    /// A command that can wait, on a line that did not ask it to: the call
+    /// site wins, and the dialogue carries on.
+    #[test]
+    fn a_blocking_command_that_is_not_awaited_resumes_anyway() {
+        fn play_anim(In(()): In<()>) -> CommandFlow {
+            CommandFlow::Blocking
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("play_anim", play_anim);
+        let runner = spawn_runner(&mut app);
+
+        call(&mut app, runner, "play_anim", vec![]);
+
+        assert_eq!(resumed(&app), [runner]);
+    }
+
+    /// `await` on a command with nothing to wait for is not an error: the
+    /// command says it is done, and is taken at its word.
+    #[test]
+    fn an_awaited_immediate_command_resumes_its_runner() {
+        fn set_flag(In(()): In<()>) -> CommandFlow {
+            CommandFlow::Immediate
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("set_flag", set_flag);
+        let runner = spawn_runner(&mut app);
+
+        call_awaited(&mut app, runner, "set_flag", vec![]);
+
+        assert_eq!(resumed(&app), [runner]);
+    }
+
+    /// A command that returns `()` keeps working, and never suspends.
+    #[test]
+    fn a_command_without_a_flow_is_immediate_even_when_awaited() {
+        fn noop(In(()): In<()>) {}
+
+        let mut app = app();
+        app.add_dialogue_command_named("noop", noop);
+        let runner = spawn_runner(&mut app);
+
+        call_awaited(&mut app, runner, "noop", vec![]);
+
+        assert_eq!(resumed(&app), [runner]);
+    }
+
+    /// A blocking command that fails has started nothing, so nothing will
+    /// resume the dialogue later: it has to resume now.
+    #[test]
+    fn an_awaited_command_that_fails_resumes_rather_than_freezing() {
+        fn play_anim(In(()): In<()>) -> Result<CommandFlow, String> {
+            Err("no such animation".into())
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("play_anim", play_anim);
+        let runner = spawn_runner(&mut app);
+
+        call_awaited(&mut app, runner, "play_anim", vec![]);
+
+        assert_eq!(resumed(&app), [runner]);
+    }
+
+    /// Arguments that do not fit never reach the system, so whatever its
+    /// signature promises, the dialogue cannot be left waiting on it.
+    #[test]
+    fn an_awaited_command_with_bad_arguments_resumes() {
+        fn play_anim(In(_): In<(String, f32)>) -> CommandFlow {
+            CommandFlow::Blocking
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("play_anim", play_anim);
+        let runner = spawn_runner(&mut app);
+
+        call_awaited(&mut app, runner, "play_anim", vec![Value::Bool(true)]);
+
+        assert_eq!(resumed(&app), [runner]);
+    }
+
+    /// The call context is posed for the command and taken back after it.
+    #[test]
+    fn a_command_reads_the_runner_it_was_called_from() {
+        fn who(In(()): In<()>, call: DialogueCall, mut ran: ResMut<Ran>) {
+            ran.0.push(format!("{:?}", call.runner()));
+        }
+
+        let mut app = app();
+        app.add_dialogue_command_named("who", who);
+        let runner = spawn_runner(&mut app);
+
+        call(&mut app, runner, "who", vec![]);
+
+        assert_eq!(ran(&app), [format!("{runner:?}")]);
+        assert!(!app.world().contains_resource::<CurrentDialogueCall>());
     }
 
     #[test]

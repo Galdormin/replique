@@ -180,7 +180,7 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// }
 ///
 /// # fn call(args: Vec<Value>) -> DialogueArgs {
-/// #     DialogueArgs { runner: Entity::PLACEHOLDER, args }
+/// #     DialogueArgs(args)
 /// # }
 /// fn move_camera(In(order): In<Camera>) {
 ///     let _ = order;
@@ -201,10 +201,10 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// );
 /// ```
 ///
-/// **A call that needs the dialogue it came from.** `#[runner]` on a field
-/// hands it the entity holding the `DialogueRunner`, which matters as soon as
-/// two dialogues run at once. It reads no argument, so it takes no position:
-/// the fields around it are numbered as if it were not there.
+/// **A call that needs the dialogue it came from.** The entity holding the
+/// `DialogueRunner` does not travel with the arguments: a command asks for it
+/// with the `DialogueCall` system parameter, next to its other parameters.
+/// What the dialogue writes and who wrote it stay two separate questions.
 ///
 /// ```
 /// # use bevy::prelude::*;
@@ -213,14 +213,12 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// /// `>> lock(12)`
 /// #[derive(RepliqueArgs)]
 /// struct Lock {
-///     #[runner]
-///     runner: Entity,
 ///     seconds: f32,
 /// }
 ///
 /// #[replique_command]
-/// fn lock(In(Lock { runner, seconds }): In<Lock>, mut commands: Commands) {
-///     let _ = (commands.entity(runner), seconds);
+/// fn lock(In(Lock { seconds }): In<Lock>, call: DialogueCall, mut commands: Commands) {
+///     let _ = (commands.entity(call.runner()), seconds);
 /// }
 /// # let mut app = App::new();
 /// # app.add_dialogue_command(lock);
@@ -242,7 +240,7 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// struct Notify(String, #[variadic] Vec<i64>);
 ///
 /// # fn call(args: Vec<Value>) -> DialogueArgs {
-/// #     DialogueArgs { runner: Entity::PLACEHOLDER, args }
+/// #     DialogueArgs(args)
 /// # }
 ///
 /// #[replique_command]
@@ -272,7 +270,7 @@ pub fn replique_value(input: TokenStream) -> TokenStream {
 /// A field of type `Option` is turned down in a shape that has a `#[variadic]`
 /// one: an optional argument left out and a first variadic one are written the
 /// same, and nothing in the call tells them apart.
-#[proc_macro_derive(RepliqueArgs, attributes(replique, runner, variadic))]
+#[proc_macro_derive(RepliqueArgs, attributes(replique, variadic))]
 pub fn replique_args(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
