@@ -1,12 +1,12 @@
 := start
->> add_scene(Alice, Bob)
+>> await add_scene(Alice, Bob)
 
 Alice: Hi! How you doing ?
 Bob: Fine and you ?
 Alice: Anything plan for today ?
 Bob: Yes, I have a date with Caro.
 
->> add_scene(Caroline)
+>> await add_scene(Caroline)
 
 Alice: There she is.
 Caroline: Hello there!
@@ -17,7 +17,7 @@ Alice: Anyway, I gotta leave you two. See you!
 Bob: Bye bye
 Caroline: Bye!
 
->> remove_scene(Alice)
+>> await remove_scene(Alice)
 
 Bob: So, where do you wanna go ?
 Caroline: At the mall ?
@@ -25,5 +25,5 @@ Bob: Let's go then!
 Caroline: Should we hold hands ?
 Bob: Sure
 
->> remove_scene(Bob, Caroline)
+>> await remove_scene(Bob, Caroline)
 ---

@@ -204,7 +204,7 @@ pub(crate) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor
             .is_some_and(|component| component.current_token(runner) != resume.token);
 
         if stale {
-            warn!("Ignore an  resume for a dialogue that has already moved on");
+            warn!("Ignore an outdated ResumeDialogue for a dialogue");
             continue;
         }
 

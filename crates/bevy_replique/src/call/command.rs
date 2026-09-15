@@ -331,8 +331,6 @@ pub(crate) fn run_dialogue_commands(
         for command in pending {
             let flow = match registry.commands.get(&command.name) {
                 Some(func) => {
-                    // Posed for the duration of the call, and around it rather
-                    // than inside, so that an early return still takes it back.
                     world.insert_resource(CurrentDialogueCall(command.token));
                     let flow = func(world, DialogueArgs(command.args));
                     world.remove_resource::<CurrentDialogueCall>();
@@ -345,15 +343,11 @@ pub(crate) fn run_dialogue_commands(
                 }
             };
 
-            // Both sides have to agree: the dialogue asks to wait with
-            // `await`, the command answers whether it has something to wait
-            // for. Either one alone carries on.
             let waits = match (command.awaited, flow) {
                 (true, CommandFlow::Blocking) => true,
                 (false, CommandFlow::Blocking) => {
                     warn!(
-                        "dialogue command `{}` asked to block, but the line does not `await` it: \
-                         the dialogue carries on",
+                        "dialogue command `{}` asked to block, but the line does not `await` it: the dialogue carries on",
                         command.name
                     );
                     false
