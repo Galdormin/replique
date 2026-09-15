@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+keywords = ["bevy", "dialogue", "narrative", "gamedev", "yarnspinner"]
+categories = ["game-development"]
 readme = "../../README.md"
 
 [dependencies]

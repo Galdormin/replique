@@ -45,7 +45,10 @@ fn read_choice(count: usize) -> usize {
 }
 
 fn main() {
-    let path = Path::new("assets/dialogue/simple.rep");
+    let path = Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/dialogue/simple.rep"
+    ));
     let src = fs::read_to_string(path).unwrap();
     let replique = RepliqueFile::from_source(src).with_path(path);
 

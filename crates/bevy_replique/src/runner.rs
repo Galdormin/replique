@@ -223,12 +223,12 @@ mod tests {
     use crate::{
         call::{CurrentDialogueCall, DialogueCall, function::DialogueFunctionAppExt},
         message::{ResumeInput, StartDialogue},
-        plugin::RepliquePLugin,
+        plugin::RepliquePlugin,
     };
 
     fn app() -> App {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePLugin));
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePlugin));
         app
     }
 

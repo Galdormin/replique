@@ -21,9 +21,9 @@ pub enum DialogueSystem {
     Commands,
 }
 
-pub struct RepliquePLugin;
+pub struct RepliquePlugin;
 
-impl Plugin for RepliquePLugin {
+impl Plugin for RepliquePlugin {
     fn build(&self, app: &mut bevy::app::App) {
         app.configure_sets(
             PostUpdate,

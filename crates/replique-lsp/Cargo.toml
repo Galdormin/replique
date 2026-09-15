@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+keywords = ["dialogue", "narrative", "gamedev", "lsp", "language-server"]
+categories = ["development-tools"]
 readme = "README.md"
 
 [dependencies]

@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+keywords = ["dialogue", "narrative", "gamedev", "yarnspinner", "parser"]
+categories = ["game-development", "parser-implementations"]
 readme = "../../README.md"
 
 [dependencies]

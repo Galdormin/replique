@@ -373,7 +373,7 @@ mod tests {
     use super::*;
     use crate::{
         call::{DialogueCall, DialogueToken},
-        plugin::RepliquePLugin,
+        plugin::RepliquePlugin,
     };
 
     /// What a test command writes down, to prove it ran and with what.
@@ -382,7 +382,7 @@ mod tests {
 
     fn app() -> App {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePLugin))
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePlugin))
             .init_resource::<Ran>();
         app
     }
