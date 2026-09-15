@@ -10,5 +10,6 @@ choices ["Oui", "Non"]
 command set_flag("entendu")
 say Bob "Moi aussi."
 command play("cloche", 1.5, true)
+command play_anim("salut")
 command fade_out()
 end

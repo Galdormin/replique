@@ -12,6 +12,9 @@ pub use ast::parse;
 pub const END_NODE_NAME: &str = "END";
 pub const RESERVED_NODE_NAMES: &[&str] = &[END_NODE_NAME];
 
+pub const AWAIT_KEYWORD: &str = "await";
+pub const RESERVED_COMMAND_NAMES: &[&str] = &[AWAIT_KEYWORD];
+
 /// Outcome of a parse. There is no `Err`: a broken file still yields the nodes
 /// it does contain, alongside the diagnostics explaining what is wrong.
 #[derive(Debug)]

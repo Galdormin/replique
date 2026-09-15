@@ -6,13 +6,13 @@ use bevy::{
 
 use crate::{
     asset::{RepliqueDialogue, RepliqueDialogueLoader},
-    command::DialogueCommandRegistry,
-    function::DialogueFunctionRegistry,
+    call::command::{DialogueCommandRegistry, run_dialogue_commands},
+    call::function::DialogueFunctionRegistry,
     message::{
         DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine, ResumeDialogue,
         StartDialogue,
     },
-    resume_dialogue, run_dialogue_commands, start_dialogue, start_pending_dialogue,
+    runner::{resume_dialogue, start_dialogue, start_pending_dialogue},
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]

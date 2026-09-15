@@ -243,6 +243,16 @@
     "type": "command",
     "named": true,
     "fields": {
+      "awaited": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "await",
+            "named": false
+          }
+        ]
+      },
       "call": {
         "multiple": false,
         "required": true,
@@ -1087,6 +1097,10 @@
   {
     "type": "attribute",
     "named": true
+  },
+  {
+    "type": "await",
+    "named": false
   },
   {
     "type": "comment",

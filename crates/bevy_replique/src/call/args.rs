@@ -40,7 +40,6 @@
 
 use std::fmt::Display;
 
-use bevy::ecs::entity::Entity;
 use replique::dialogue::{Value, ValueType};
 use thiserror::Error;
 
@@ -131,7 +130,7 @@ pub enum DialogueArgsError {
 ///
 /// /// `>> add(1, 2.0, 3.5, 4)` and `>> add(4, 5)` both fit.
 /// fn add(In(args): In<DialogueArgs>, mut score: ResMut<Score>) {
-///     for value in &args.args {
+///     for value in &args.0 {
 ///         let points = match value {
 ///             Value::Int(points) => *points as f32,
 ///             Value::Float(points) => *points as f32,
@@ -144,51 +143,8 @@ pub enum DialogueArgsError {
 /// # app.init_resource::<Score>();
 /// # app.add_dialogue_command_named("add", add);
 /// ```
-///
-/// **A command that needs the dialogue it came from.** [`runner`] is the
-/// entity holding the [`DialogueRunner`], which matters as soon as two
-/// dialogues run at the same time — an ambient conversation and the one the
-/// player is in:
-///
-/// ```
-/// # use bevy::prelude::*;
-/// # use bevy_replique::prelude::*;
-///
-/// /// Marks the dialogue that asked not to be interrupted.
-/// #[derive(Component)]
-/// struct Locked;
-///
-/// /// `>> lock` locks the dialogue that ran it, not the other one.
-/// fn lock(In(args): In<DialogueArgs>, mut commands: Commands) {
-///     commands.entity(args.runner).insert(Locked);
-/// }
-/// # let mut app = App::new();
-/// # app.add_dialogue_command_named("lock", lock);
-/// ```
-///
-/// [`FromValue::from_value`] reads a single [`Value`] into a Rust type, for a
-/// command that would rather not match on the enum by hand.
-///
-/// [`runner`]: DialogueArgs::runner
-/// [`DialogueRunner`]: crate::runner::DialogueRunner
 #[derive(Debug, Clone, PartialEq)]
-pub struct DialogueArgs {
-    /// Entity holding the runner that reached the command.
-    pub runner: Entity,
-    /// Arguments, in the order they are written in the dialogue.
-    pub args: Vec<Value>,
-}
-
-impl DialogueArgs {
-    /// Number of arguments the command was called with.
-    pub fn len(&self) -> usize {
-        self.args.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.args.is_empty()
-    }
-}
+pub struct DialogueArgs(pub Vec<Value>);
 
 /// One argument, read into the type a command system asked for.
 ///
@@ -429,7 +385,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 ///
 ///         // The arguments are read one by one, with the same
 ///         // `FromMaybeValue` the tuples use: absent is refused here.
-///         let mut values = args.args.into_iter();
+///         let mut values = args.0.into_iter();
 ///         let order = String::from_maybe_value(values.next()).map_err(at(0))?;
 ///
 ///         match order.as_str() {
@@ -455,7 +411,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 ///
 /// **A call whose arity is not fixed.** A tuple says how many arguments there
 /// are, so it cannot take `>> add_scene(Alice)` and `>> add_scene(Alice, Bob)`
-/// both. Reading [`args`](DialogueArgs::args) yourself can: the values come in
+/// both. Reading [`DialogueArgs`] yourself can: the values come in
 /// the order the writer put them, and [`FromValue`] reads each one, the index
 /// of the loop being what makes the error point at the argument at fault.
 ///
@@ -467,7 +423,7 @@ impl_from_value_int!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 ///
 /// impl FromDialogueArgs for Names {
 ///     fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-///         args.args
+///         args.0
 ///             .into_iter()
 ///             .enumerate()
 ///             .map(|(index, value)| {
@@ -504,7 +460,7 @@ impl FromDialogueArgs for DialogueArgs {
 
 impl FromDialogueArgs for () {
     fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
-        match args.len() {
+        match args.0.len() {
             0 => Ok(()),
             got => Err(DialogueArgsError::TooManyArgs { expected: 0, got }),
         }
@@ -517,11 +473,11 @@ macro_rules! impl_from_dialogue_args {
             #[allow(unused_assignments, non_snake_case)]
             fn from_dialogue_args(args: DialogueArgs) -> Result<Self, DialogueArgsError> {
                 let expected = [$(stringify!($T)),+].len();
-                if args.len() > expected {
-                    return Err(DialogueArgsError::TooManyArgs { expected, got: args.len() });
+                if args.0.len() > expected {
+                    return Err(DialogueArgsError::TooManyArgs { expected, got: args.0.len() });
                 }
 
-                let mut values = args.args.into_iter();
+                let mut values = args.0.into_iter();
                 let mut index = 0;
                 $(
                     let $T = $T::from_maybe_value(values.next()).map_err(
@@ -687,10 +643,7 @@ mod tests {
 
     /// A call of `args`, from a runner no test here looks at.
     fn args(args: Vec<Value>) -> DialogueArgs {
-        DialogueArgs {
-            runner: Entity::PLACEHOLDER,
-            args,
-        }
+        DialogueArgs(args)
     }
 
     fn str(text: &str) -> Value {

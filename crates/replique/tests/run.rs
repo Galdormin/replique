@@ -39,7 +39,7 @@ fn trace(src: &str, entry: &str) -> String {
                 let _ = writeln!(out, "say {speaker} {text:?}");
                 vm.resume(ResumeEvent::Advance)
             }
-            Ok(DialogueEvent::Command { name, args }) => {
+            Ok(DialogueEvent::Command { name, args, .. }) => {
                 let args: Vec<_> = args.iter().map(render_value).collect();
                 let _ = writeln!(out, "command {name}({})", args.join(", "));
                 vm.resume(ResumeEvent::Advance)

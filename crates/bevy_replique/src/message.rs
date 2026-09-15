@@ -17,6 +17,8 @@
 use bevy::{ecs::entity::Entity, prelude::Message};
 use replique::{dialogue::Value, vm::ResumeEvent};
 
+use crate::call::DialogueToken;
+
 /// A line of dialogue is ready to be displayed.
 ///
 /// Sent by a [`DialogueRunner`] when the virtual machine yields
@@ -28,8 +30,8 @@ use replique::{dialogue::Value, vm::ResumeEvent};
 /// [`DialogueEvent::Say`]: replique::vm::DialogueEvent::Say
 #[derive(Message, Debug, Clone)]
 pub struct DialogueLine {
-    /// Entity holding the runner that produced this line.
-    pub runner: Entity,
+    /// Token to identify the runner that produced this line.
+    pub token: DialogueToken,
     /// Who is speaking, or `None` for a line without a speaker.
     pub speaker: Option<String>,
     /// Text of the line.
@@ -48,12 +50,14 @@ pub struct DialogueLine {
 /// [`DialogueEvent::Command`]: replique::vm::DialogueEvent::Command
 #[derive(Message, Debug, Clone)]
 pub struct DialogueCommand {
-    /// Entity holding the runner that produced this command.
-    pub runner: Entity,
+    /// Token to identify the runner that produced this command.
+    pub token: DialogueToken,
     /// Name of the command, as written after the `>>`.
     pub name: String,
     /// Arguments, in the order they are declared.
     pub args: Vec<Value>,
+    /// The command is awaited
+    pub awaited: bool,
 }
 
 /// The dialogue reached a choice point and waits for input.
@@ -67,8 +71,8 @@ pub struct DialogueCommand {
 /// [`DialogueEvent::Choices`]: replique::vm::DialogueEvent::Choices
 #[derive(Message, Debug, Clone)]
 pub struct DialogueChoices {
-    /// Entity holding the runner that produced these choices.
-    pub runner: Entity,
+    /// Token to identify the runner that produced these choices.
+    pub token: DialogueToken,
     /// Available choices, in the order they are declared in the dialogue.
     pub choices: Vec<DialogueChoice>,
 }
@@ -145,8 +149,8 @@ impl ResumeInput {
 /// [`DialogueRunner`]: crate::runner::DialogueRunner
 #[derive(Message, Debug, Clone)]
 pub struct ResumeDialogue {
-    /// Entity holding the runner to resume.
-    pub runner: Entity,
+    /// Token to identify the runner to resume.
+    pub token: DialogueToken,
     /// Player input driving the dialogue forward.
     pub input: ResumeInput,
 }

@@ -169,6 +169,22 @@
           "value": ">>"
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "FIELD",
+              "name": "awaited",
+              "content": {
+                "type": "STRING",
+                "value": "await"
+              }
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "FIELD",
           "name": "call",
           "content": {

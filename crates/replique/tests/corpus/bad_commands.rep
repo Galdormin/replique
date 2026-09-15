@@ -15,4 +15,10 @@ Alice: six
 Alice: sept
 >> play("a" - 1)
 Alice: huit
+>> await()
+Alice: neuf
+>> await
+Alice: dix
+>> await 2fast(1)
+Alice: onze
 ---

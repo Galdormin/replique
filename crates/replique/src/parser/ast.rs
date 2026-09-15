@@ -3,7 +3,8 @@
 use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
 use crate::parser::{
-    END_NODE_NAME, Parsed, RESERVED_NODE_NAMES, Span, Spanned,
+    AWAIT_KEYWORD, END_NODE_NAME, Parsed, RESERVED_COMMAND_NAMES, RESERVED_NODE_NAMES, Span,
+    Spanned,
     diagnostic::{
         DiagnosticKind::{self, StrayLoopControl},
         Diagnostics, Label,
@@ -36,6 +37,7 @@ pub enum StmtKind {
     Command {
         name: Spanned<String>,
         args: Vec<Spanned<Expr>>,
+        awaited: bool,
     },
     Set {
         /// Name of the variable, without its `$`.
@@ -612,10 +614,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `>> name()` or `>> name(1, $gold + 1, true)`. The `(` follows the name
-    /// directly, and every argument is an expression.
-    /// A malformed command is dropped.
-    fn parse_command(&mut self, cmd: Spanned<&str>, line_span: Span) -> Option<Stmt> {
+    /// `>> name()` or `>> name(1, $gold + 1, true)`, and `>> await name()`
+    fn parse_command(&mut self, mut cmd: Spanned<&str>, line_span: Span) -> Option<Stmt> {
+        // `await` is a word of the language, never a name: what follows it is
+        // read as the command, and `>> await()` is refused below.
+        let awaited = matches!(
+            cmd.value.strip_prefix(AWAIT_KEYWORD),
+            Some(rest) if rest.starts_with(char::is_whitespace)
+        );
+
+        if awaited {
+            let rest = &cmd.value[AWAIT_KEYWORD.len()..];
+            cmd = Spanned::from_text(rest, cmd.span.start + AWAIT_KEYWORD.len());
+        }
+
         // The name is read before the expression parser sees the line: a
         // faulty one is named as such, instead of being reported as a whole
         // expression that happens not to be a call.
@@ -625,14 +637,24 @@ impl<'a> Parser<'a> {
             .next()
             .expect("always one part")
             .trim_end();
+
         if name.is_empty() {
             self.diags.push(line_span, DiagnosticKind::EmptyCommand);
             return None;
         }
+
         if !is_valid_ident(name) {
             self.diags.push(
                 Span::from_length(cmd.span.start, name.len()),
                 DiagnosticKind::InvalidCommandName(name.to_owned()),
+            );
+            return None;
+        }
+
+        if RESERVED_COMMAND_NAMES.contains(&name) {
+            self.diags.push(
+                Span::from_length(cmd.span.start, name.len()),
+                DiagnosticKind::ReservedCommandName(name.to_owned()),
             );
             return None;
         }
@@ -651,7 +673,11 @@ impl<'a> Parser<'a> {
                 }
 
                 Some(Stmt {
-                    kind: StmtKind::Command { name, args },
+                    kind: StmtKind::Command {
+                        name,
+                        args,
+                        awaited,
+                    },
                     span: expr.span,
                 })
             }
@@ -864,9 +890,17 @@ mod tests {
     /// Name and arguments of a command, spans dropped.
     fn command(line: &str) -> (String, Vec<Expr>) {
         match only_stmt(&in_node(line)) {
-            StmtKind::Command { name, args } => {
+            StmtKind::Command { name, args, .. } => {
                 (name.value, args.into_iter().map(|a| a.value).collect())
             }
+            other => panic!("expected a command, got {other:?}"),
+        }
+    }
+
+    /// Whether the dialogue waits on the command of `line`.
+    fn awaited(line: &str) -> bool {
+        match only_stmt(&in_node(line)) {
+            StmtKind::Command { awaited, .. } => awaited,
             other => panic!("expected a command, got {other:?}"),
         }
     }
@@ -1166,6 +1200,63 @@ mod tests {
     fn error_on_a_command_without_a_name() {
         assert_eq!(codes(&in_filled_node(">>")), ["empty-command"]);
         assert_eq!(codes(&in_filled_node(">> ()")), ["empty-command"]);
+    }
+
+    /// `await` is a word of the language, so the command it marks is the one
+    /// that follows, and the flag rides on the statement.
+    #[test]
+    fn a_command_can_be_awaited() {
+        assert!(!awaited(">> play(1)"));
+        assert!(awaited(">> await play(1)"));
+        assert_eq!(command(">> await play(1)").0, "play");
+    }
+
+    /// The space after `await` is a separator, not part of the name.
+    #[test]
+    fn an_awaited_command_ignores_the_space_after_the_keyword() {
+        assert_eq!(command(">> await   play(1)").0, "play");
+        assert!(awaited(">> await   play(1)"));
+    }
+
+    /// The keyword is dropped from the spans too, so a diagnostic still points
+    /// at the offending text rather than a few bytes to its left.
+    #[test]
+    fn an_awaited_command_keeps_its_spans_on_the_source() {
+        let src = &in_filled_node(">> await play(1, 1..2)");
+        let parsed = parse(src);
+        let diag = parsed.diagnostics.iter().next().unwrap();
+
+        assert_eq!(&src[diag.span.start..diag.span.end], "1..2");
+    }
+
+    /// A word that merely starts with `await` is a command like any other.
+    #[test]
+    fn a_command_whose_name_starts_with_await_is_not_awaited() {
+        assert_eq!(command(">> awaited_thing(1)").0, "awaited_thing");
+        assert!(!awaited(">> awaited_thing(1)"));
+    }
+
+    #[test]
+    fn error_on_a_command_named_after_a_reserved_word() {
+        assert_eq!(
+            codes(&in_filled_node(">> await()")),
+            ["reserved-command-name"]
+        );
+        // `await` alone marks nothing: the name it expects is missing.
+        assert_eq!(
+            codes(&in_filled_node(">> await")),
+            ["reserved-command-name"]
+        );
+        assert_eq!(
+            codes(&in_filled_node(">> await await()")),
+            ["reserved-command-name"]
+        );
+    }
+
+    /// `await` with nothing after it is a command without a name, as `>>` is.
+    #[test]
+    fn error_on_an_awaited_command_without_a_name() {
+        assert_eq!(codes(&in_filled_node(">> await ()")), ["empty-command"]);
     }
 
     #[test]

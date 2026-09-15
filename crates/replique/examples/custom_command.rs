@@ -79,7 +79,7 @@ fn main() {
                 let choice = read_choice(choices.len());
                 event = vm.resume(ResumeEvent::Select(choice)).unwrap();
             }
-            DialogueEvent::Command { name, args } => {
+            DialogueEvent::Command { name, args, .. } => {
                 let action = match name.as_str() {
                     "add_scene" => "added",
                     "remove_scene" => "remove",

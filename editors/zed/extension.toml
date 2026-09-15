@@ -13,7 +13,7 @@ version = "0.7.0"
 
 [grammars.replique]
 repository = "https://github.com/Galdormin/replique"
-rev = "0a3076e1935d141de2449045cece5ef1b07859ca"
+rev = "e2f0cf2cb4fb9e7856ffb72fe560e7232fc01f2b"
 path = "editors/tree-sitter-replique"
 
 [language_servers.replique-lsp]

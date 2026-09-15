@@ -17,19 +17,19 @@ pub(crate) enum Kind {
 impl Kind {
     fn trait_path(self) -> TokenStream2 {
         match self {
-            Kind::Function => quote! { ::bevy_replique::function::RepliqueFunction },
-            Kind::Command => quote! { ::bevy_replique::command::RepliqueCommand },
+            Kind::Function => quote! { ::bevy_replique::call::function::RepliqueFunction },
+            Kind::Command => quote! { ::bevy_replique::call::command::RepliqueCommand },
         }
     }
 
     fn register_call(self) -> TokenStream2 {
         match self {
             Kind::Function => quote! {
-                <::bevy::app::App as ::bevy_replique::function::DialogueFunctionAppExt>
+                <::bevy::app::App as ::bevy_replique::call::function::DialogueFunctionAppExt>
                     ::add_dialogue_function_named
             },
             Kind::Command => quote! {
-                <::bevy::app::App as ::bevy_replique::command::DialogueCommandAppExt>
+                <::bevy::app::App as ::bevy_replique::call::command::DialogueCommandAppExt>
                     ::add_dialogue_command_named
             },
         }

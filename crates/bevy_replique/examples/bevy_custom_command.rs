@@ -37,7 +37,18 @@ fn main() {
         .add_dialogue_command(remove_scene)
         .init_resource::<Waiting>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (show_line, show_finished, handle_input))
+        .add_systems(
+            Update,
+            (
+                show_line,
+                show_finished,
+                handle_input,
+                resume_on_awaited_all,
+            ),
+        )
+        .add_systems(PostUpdate, handle_tween)
+        .add_observer(despawn_on_tween_end)
+        .add_observer(remove_await_on_tween_end)
         .run();
 }
 
@@ -92,44 +103,31 @@ struct CharactersParams(#[variadic] Vec<Character>);
 fn add_scene(
     In(CharactersParams(characters)): In<CharactersParams>,
     mut commands: Commands,
+    call: DialogueCall,
     stage: Single<Entity, With<Stage>>,
     on_stage: Query<&Character>,
-) {
+) -> CommandFlow {
+    let mut awaiting = None;
     for character in characters {
         if on_stage.iter().any(|on_stage| *on_stage == character) {
             continue;
         }
 
+        if awaiting.is_none() {
+            awaiting = Some(commands.spawn(DialogueAwait(call.token())).id());
+        }
+
         commands.entity(*stage).with_child((
-            character,
-            Node {
-                align_items: AlignItems::Center,
-                column_gap: px(16),
-                ..default()
-            },
-            children![
-                (
-                    Node {
-                        width: px(PORTRAIT),
-                        height: px(PORTRAIT),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(character.color()),
-                    children![(
-                        Text::new(character.name()),
-                        TextFont::from_font_size(16.0),
-                        TextColor(Color::BLACK),
-                    )],
-                ),
-                (
-                    Text::new(""),
-                    TextFont::from_font_size(24.0),
-                    LineText(character),
-                ),
-            ],
+            portrait(character),
+            TweenMargin::new(-PORTRAIT - 32.0, 0.0),
+            AwaitedBy(awaiting.unwrap()),
         ));
+    }
+
+    if awaiting.is_some() {
+        CommandFlow::Blocking
+    } else {
+        CommandFlow::Immediate
     }
 }
 
@@ -142,7 +140,9 @@ fn remove_scene(
 ) {
     for (entity, character) in &on_stage {
         if characters.contains(character) {
-            commands.entity(entity).despawn();
+            commands
+                .entity(entity)
+                .insert((TweenMargin::new(0.0, -PORTRAIT - 32.0), DespawnOnTweenEnd));
         }
     }
 }
@@ -156,7 +156,7 @@ enum Waiting {
     #[default]
     Nothing,
     /// A [`DialogueLine`] is displayed, waiting for [`ResumeInput::Advance`].
-    Line(Entity),
+    Line(DialogueToken),
 }
 
 /// Column the portraits are added to.
@@ -170,6 +170,77 @@ struct LineText(Character);
 /// Text node showing what to press.
 #[derive(Component)]
 struct HintText;
+
+/// Await all tween to finish to resume dialogue
+#[derive(Component)]
+struct DialogueAwait(DialogueToken);
+
+#[derive(Component)]
+#[relationship(relationship_target = Awaiting)]
+struct AwaitedBy(Entity);
+
+#[derive(Component)]
+#[relationship_target(relationship = AwaitedBy)]
+struct Awaiting(Vec<Entity>);
+
+/// Tween the margin for the entry/exit of portrait
+#[derive(Component)]
+struct TweenMargin {
+    from: f32,
+    to: f32,
+    timer: Timer,
+}
+
+impl TweenMargin {
+    fn new(from: f32, to: f32) -> Self {
+        TweenMargin {
+            from,
+            to,
+            timer: Timer::from_seconds(0.25, TimerMode::Once),
+        }
+    }
+
+    fn margin(&self) -> f32 {
+        self.from.lerp(self.to, self.timer.fraction())
+    }
+}
+
+/// Despawn on [`TweenMargin`] end
+#[derive(Component)]
+struct DespawnOnTweenEnd;
+
+fn portrait(character: Character) -> impl Bundle {
+    (
+        character,
+        Node {
+            align_items: AlignItems::Center,
+            column_gap: px(16),
+            ..default()
+        },
+        children![
+            (
+                Node {
+                    width: px(PORTRAIT),
+                    height: px(PORTRAIT),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(character.color()),
+                children![(
+                    Text::new(character.name()),
+                    TextFont::from_font_size(16.0),
+                    TextColor(Color::BLACK),
+                )],
+            ),
+            (
+                Text::new(""),
+                TextFont::from_font_size(24.0),
+                LineText(character),
+            ),
+        ],
+    )
+}
 
 fn setup(
     mut commands: Commands,
@@ -232,7 +303,7 @@ fn show_line(
             };
         }
 
-        *waiting = Waiting::Line(line.runner);
+        *waiting = Waiting::Line(line.token);
     }
 }
 
@@ -252,13 +323,57 @@ fn handle_input(
     mut waiting: ResMut<Waiting>,
     mut resume: MessageWriter<ResumeDialogue>,
 ) {
-    if let Waiting::Line(runner) = *waiting
+    if let Waiting::Line(token) = *waiting
         && keys.just_pressed(KeyCode::Space)
     {
         resume.write(ResumeDialogue {
-            runner,
+            token,
             input: ResumeInput::Advance,
         });
         *waiting = Waiting::Nothing;
+    }
+}
+
+fn handle_tween(
+    mut commands: Commands,
+    time: Res<Time>,
+    tweens: Query<(Entity, &mut Node, &mut TweenMargin)>,
+) {
+    for (entity, mut node, mut tween) in tweens {
+        if tween.timer.tick(time.delta()).is_finished() {
+            node.margin.left = px(tween.to);
+            commands.entity(entity).remove::<TweenMargin>();
+            continue;
+        }
+
+        node.margin.left = px(tween.margin())
+    }
+}
+
+fn despawn_on_tween_end(
+    tween_ended: On<Remove, TweenMargin>,
+    mut commands: Commands,
+    tweens: Query<(), With<DespawnOnTweenEnd>>,
+) {
+    if tweens.contains(tween_ended.entity) {
+        commands.entity(tween_ended.entity).despawn();
+    }
+}
+
+fn remove_await_on_tween_end(tween_ended: On<Remove, TweenMargin>, mut commands: Commands) {
+    commands.entity(tween_ended.entity).remove::<AwaitedBy>();
+}
+
+fn resume_on_awaited_all(
+    mut commands: Commands,
+    mut resume: MessageWriter<ResumeDialogue>,
+    dialogues: Query<(Entity, &DialogueAwait), Without<Awaiting>>,
+) {
+    for (entity, dialogue) in dialogues {
+        resume.write(ResumeDialogue {
+            token: dialogue.0,
+            input: ResumeInput::Advance,
+        });
+        commands.entity(entity).despawn();
     }
 }

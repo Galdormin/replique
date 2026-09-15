@@ -8,7 +8,7 @@
 //! `[party_size()]` counts them.
 //!
 //! The arguments arrive already typed, as they do for a command, and the
-//! return type is written back by [`IntoValue`](crate::args::IntoValue):
+//! return type is written back by [`IntoValue`](crate::call::args::IntoValue):
 //!
 //! ```
 //! # use bevy::prelude::*;
@@ -88,7 +88,6 @@
 use bevy::{
     app::App,
     ecs::{
-        entity::Entity,
         resource::Resource,
         system::{In, IntoSystem, ReadOnlySystem},
         world::{Mut, World},
@@ -102,7 +101,10 @@ use replique::{
     host::{HostError, RepliqueHost},
 };
 
-use crate::args::{DialogueArgs, FromDialogueArgs, IntoFunctionOutput};
+use super::{
+    CurrentDialogueCall, DialogueToken,
+    args::{DialogueArgs, FromDialogueArgs, IntoFunctionOutput},
+};
 
 type FunctionRunner =
     Box<dyn Fn(&mut World, DialogueArgs) -> Result<Value, HostError> + Send + Sync>;
@@ -293,27 +295,32 @@ impl DialogueFunctionAppExt for App {
 /// What the VM asks when an expression names a function.
 pub(crate) struct DialogueHost<'a> {
     world: &'a mut World,
-    runner: Entity,
+    /// The token of the suspension the runner is heading into, which is what
+    /// [`DialogueCall`] hands to a function called on the way there.
+    ///
+    /// [`DialogueCall`]: crate::call::DialogueCall
+    token: DialogueToken,
 }
 
 impl<'a> DialogueHost<'a> {
-    pub fn new(world: &'a mut World, runner: Entity) -> Self {
-        Self { world, runner }
+    pub fn new(world: &'a mut World, token: DialogueToken) -> Self {
+        Self { world, token }
     }
 }
 
 impl<'a> RepliqueHost for DialogueHost<'a> {
     fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, HostError> {
+        let token = self.token;
+
         self.world
             .resource_scope(|world, registry: Mut<DialogueFunctionRegistry>| {
                 if let Some(func) = registry.functions.get(name) {
-                    func(
-                        world,
-                        DialogueArgs {
-                            runner: self.runner,
-                            args,
-                        },
-                    )
+                    // Posed around the call, as it is for a command, so that
+                    // `DialogueCall` answers the same way on both sides.
+                    world.insert_resource(CurrentDialogueCall(token));
+                    let answer = func(world, DialogueArgs(args));
+                    world.remove_resource::<CurrentDialogueCall>();
+                    answer
                 } else {
                     Err(HostError::UnknownFunction(name.into()))
                 }
