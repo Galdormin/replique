@@ -70,8 +70,9 @@ module.exports = grammar({
     // the marker, instead of reading it as a line of its own.
     choice: ($) => prec.right(seq("->", optional(field("text", $.text)))),
 
-    // >> play("bell", 0.5)
-    command: ($) => seq(">>", field("call", $.call)),
+    // >> play("bell", 0.5) and >> await play_anim("wave")
+    command: ($) =>
+      seq(">>", optional(field("awaited", "await")), field("call", $.call)),
 
     // [let $gold = $gold + 1] or [let $player.stats.hp = 1]
     let_statement: ($) =>
