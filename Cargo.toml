@@ -3,15 +3,15 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Galdormin/replique"
 authors = ["Théo Plénet <theo.plenet@gmail.com>"]
 
 [workspace.dependencies]
-replique = { version = "0.0.0", path = "crates/replique" }
-bevy_replique_derive = { path = "crates/bevy_replique_derive" }
+replique = { version = "0.1.0", path = "crates/replique" }
+bevy_replique_derive = { version = "0.1.0", path = "crates/bevy_replique_derive" }
 
 bevy = { version = "0.19", default-features = false , features = ["bevy_asset", "bevy_log"] }
 thiserror = "2"

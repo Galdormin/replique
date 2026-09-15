@@ -25,16 +25,46 @@ Caroline: Alice... You can start...
 
 ## Syntax at a glance
 
-| Syntax                   | Meaning                            |
-| ------------------------ | ---------------------------------- |
-| `:= name`                | Start a node named `name`          |
-| `---`                    | End the current node               |
-| `Speaker: text`          | A line of dialogue                 |
-| `-> text`                | A choice offered to the player     |
-| `>> command(arg1, arg2)` | A command to execute on the engine |
-| `=> name`                | Jump to the node `name`            |
+| Syntax                               | Meaning                                         |
+| ------------------------------------ | ----------------------------------------------- |
+| `:= name`                            | Start a node named `name`                       |
+| `---`                                | End the current node                            |
+| `Speaker: text`                      | A line of dialogue                              |
+| `-> text`                            | A choice offered to the player                  |
+| `>> command(arg1, arg2)`             | A command to execute on the engine              |
+| `=> name`                            | Jump to the node `name`                         |
+| `[let $var = value]`                 | Set a variable                                  |
+| `[$var]`                             | Insert a value into the line                    |
+| `[if cond]`, `[elif cond]`, `[else]` | Play a block only under a condition             |
+| `[while cond]`                       | Repeat a block, with `[break]` and `[continue]` |
 
-Indentation under a `->` line defines the lines played when that choice is picked.
+## Variables, conditions and loops
+
+Variables hold numbers, strings, booleans and dictionaries. Anything written
+between `[` and `]` inside a line is evaluated and inserted where it stands:
+
+```
+:= shop
+[let $gold = 12]
+[let $player = {name: "Alice", hp: 7}]
+
+Merchant: Welcome [$player.name]! You have [$gold] coins.
+
+[if $gold >= 10]
+    Merchant: The lantern is yours.
+    [let $gold = $gold - 10]
+[elif $gold > 0]
+    Merchant: Not quite enough, come back later.
+[else]
+    Merchant: Come back when you can pay.
+
+[while $gold > 0]
+    [let $gold = $gold - 1]
+    >> ring_bell()
+
+Merchant: [$player.name], you are leaving with [$gold] coins.
+---
+```
 
 ## Crates
 
@@ -44,6 +74,12 @@ Indentation under a `->` line defines the lines played when that choice is picke
 | [`bevy_replique`](crates/bevy_replique) | Bevy plugin built on top of `replique`          | [doc.rs](https://docs.rs/bevy_replique/latest/bevy_replique) |
 | [`replique-cli`](crates/replique-cli)   | Command line tool to check dialogue files       | [README](crates/replique-cli/README.md)                      |
 | [`replique-lsp`](crates/replique-lsp)   | Language server for editor support              | [README](crates/replique-lsp/README.md)                      |
+
+## Versions
+
+| Replique | Bevy |
+| -------- | ---- |
+| 0.1.0    | 0.19 |
 
 ## License
 

@@ -28,11 +28,12 @@ const PORTRAIT: f32 = 96.0;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(AssetPlugin {
-            // The assets live at the root of the workspace, not in the crate.
-            file_path: "../../assets".to_string(),
+            // Resolved against `CARGO_MANIFEST_DIR`, so the assets shipped with
+            // the crate are found wherever the example runs from.
+            file_path: "assets".to_string(),
             ..default()
         }))
-        .add_plugins(RepliquePLugin)
+        .add_plugins(RepliquePlugin)
         .add_dialogue_command(add_scene)
         .add_dialogue_command(remove_scene)
         .init_resource::<Waiting>()

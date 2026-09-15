@@ -22,11 +22,12 @@ const START_NODE: &str = "start";
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(AssetPlugin {
-            // The assets live at the root of the workspace, not in the crate.
-            file_path: "../../assets".to_string(),
+            // Resolved against `CARGO_MANIFEST_DIR`, so the assets shipped with
+            // the crate are found wherever the example runs from.
+            file_path: "assets".to_string(),
             ..default()
         }))
-        .add_plugins(RepliquePLugin)
+        .add_plugins(RepliquePlugin)
         // Read the world, and answer a value.
         .add_dialogue_function(get_stat)
         .add_dialogue_function(party_size)
