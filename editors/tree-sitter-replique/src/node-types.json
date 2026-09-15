@@ -153,6 +153,11 @@
     "fields": {}
   },
   {
+    "type": "break_statement",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "call",
     "named": true,
     "fields": {
@@ -249,6 +254,11 @@
         ]
       }
     }
+  },
+  {
+    "type": "continue_statement",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "dict",
@@ -479,6 +489,61 @@
     }
   },
   {
+    "type": "interpolation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "attribute_expression",
+          "named": true
+        },
+        {
+          "type": "binary_expression",
+          "named": true
+        },
+        {
+          "type": "boolean",
+          "named": true
+        },
+        {
+          "type": "call",
+          "named": true
+        },
+        {
+          "type": "dict",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "parenthesized_expression",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "unary_expression",
+          "named": true
+        },
+        {
+          "type": "variable",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "jump",
     "named": true,
     "fields": {
@@ -692,11 +757,19 @@
       "required": false,
       "types": [
         {
+          "type": "break_statement",
+          "named": true
+        },
+        {
           "type": "choice",
           "named": true
         },
         {
           "type": "command",
+          "named": true
+        },
+        {
+          "type": "continue_statement",
           "named": true
         },
         {
@@ -729,6 +802,29 @@
         },
         {
           "type": "say",
+          "named": true
+        },
+        {
+          "type": "while_statement",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "text",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "interpolation",
+          "named": true
+        },
+        {
+          "type": "text_chunk",
           "named": true
         }
       ]
@@ -806,6 +902,62 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "while_statement",
+    "named": true,
+    "fields": {
+      "condition": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "attribute_expression",
+            "named": true
+          },
+          {
+            "type": "binary_expression",
+            "named": true
+          },
+          {
+            "type": "boolean",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "dict",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "number",
+            "named": true
+          },
+          {
+            "type": "parenthesized_expression",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          },
+          {
+            "type": "unary_expression",
+            "named": true
+          },
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -893,6 +1045,18 @@
     "named": false
   },
   {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[break",
+    "named": false
+  },
+  {
+    "type": "[continue",
+    "named": false
+  },
+  {
     "type": "[elif",
     "named": false
   },
@@ -906,6 +1070,10 @@
   },
   {
     "type": "[let",
+    "named": false
+  },
+  {
+    "type": "[while",
     "named": false
   },
   {
@@ -958,7 +1126,7 @@
     "named": true
   },
   {
-    "type": "text",
+    "type": "text_chunk",
     "named": true
   },
   {
