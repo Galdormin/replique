@@ -15,7 +15,10 @@
 //! by node with a `DialogueNodeBuilder`, and then run by a
 //! [`DialogueVm`](crate::vm::DialogueVm).
 
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 use crate::{
     dialogue::{builder::BuildError, expr::Expr},
@@ -48,6 +51,11 @@ impl Dialogue {
     /// Node called `name`, or `None` if this dialogue has none.
     pub fn get_node(&self, name: &NodeName) -> Option<&DialogueNode> {
         self.nodes.get(name)
+    }
+
+    /// Return all nodes
+    pub fn nodes(&self) -> Vec<&DialogueNode> {
+        self.nodes.values().collect::<Vec<_>>()
     }
 }
 
@@ -136,6 +144,19 @@ impl DialogueNode {
     /// own steps, which is what makes this indexing safe.
     pub(crate) fn get_step(&self, id: &StepId) -> &Step {
         &self.steps[id.0 as usize]
+    }
+
+    /// Return all speakers in the node
+    pub fn speakers(&self) -> Vec<String> {
+        self.steps
+            .iter()
+            .filter_map(|s| match &s.kind {
+                StepKind::Say { line, .. } => line.speaker.clone(),
+                _ => None,
+            })
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect()
     }
 }
 
