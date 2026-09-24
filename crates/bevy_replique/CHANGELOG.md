@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/Galdormin/replique/compare/bevy_replique-v0.1.0...bevy_replique-v0.1.1) - 2026-09-24
+
+### Other
+
+- update version to 0.1.1
+- release v0.1.0
+
 ## [0.1.0](https://github.com/Galdormin/replique/compare/bevy_replique-v0.0.0...bevy_replique-v0.1.0) - 2026-09-15
 
 ### Added
