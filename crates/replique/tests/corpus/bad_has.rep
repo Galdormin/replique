@@ -1,0 +1,16 @@
+:= start
+[let $stats = {force: 12}]
+[if $stats has]
+    Alice: Il manque la clé.
+[if has force]
+    Alice: Il manque le dict.
+[if 12 has force]
+    Alice: Un nombre n'a pas de clé.
+[if $stats has 12]
+    Alice: Une clé est un texte.
+[if not $stats has force]
+    Alice: Il faut des parenthèses autour du has.
+[if $stats has force magie]
+    Alice: Une seule clé à la fois.
+Alice: Il me reste [$stats has] à dire.
+---

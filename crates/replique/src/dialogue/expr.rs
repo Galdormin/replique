@@ -211,7 +211,27 @@ fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
             Ordering::Greater | Ordering::Equal
         ))),
 
+        BinaryOp::Has => Ok(Value::Bool(has(op, lhs, rhs)?)),
+
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => arith(op, lhs, rhs),
+    }
+}
+
+/// Whether the dict `lhs` holds the key `rhs`, whatever the value under it.
+/// Only the dict itself is looked at: a key of a nested dict is not found.
+fn has(op: BinaryOp, lhs: Value, rhs: Value) -> Result<bool, EvalError> {
+    match (lhs, rhs) {
+        (Value::Dict(map), Value::String(key)) => Ok(map.contains_key(&key)),
+        (Value::Dict(_), rhs) => Err(EvalError::TypeMismatch {
+            op: op.to_string(),
+            expected: ValueType::String.to_string(),
+            received: rhs.vtype().to_string(),
+        }),
+        (lhs, _) => Err(EvalError::TypeMismatch {
+            op: op.to_string(),
+            expected: ValueType::Dict.to_string(),
+            received: lhs.vtype().to_string(),
+        }),
     }
 }
 
@@ -691,5 +711,153 @@ mod tests {
             unary(UnaryOp::Not, Value::Int(1)),
             Err(EvalError::TypeMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn has_finds_the_keys_of_a_dict() {
+        let stats = dict(&[("strength", Value::Int(12))]);
+
+        assert_eq!(
+            bin(BinaryOp::Has, stats.clone(), str("strength")).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            bin(BinaryOp::Has, stats, str("magic")).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            bin(BinaryOp::Has, dict(&[]), str("strength")).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    /// `has` asks whether the key is there, not whether what it holds is
+    /// worth something: `0`, `false` and `""` are values like the others.
+    #[test]
+    fn has_does_not_look_at_the_value_under_the_key() {
+        let stats = dict(&[
+            ("zero", Value::Int(0)),
+            ("off", Value::Bool(false)),
+            ("blank", str("")),
+            ("empty", dict(&[])),
+        ]);
+
+        for key in ["zero", "off", "blank", "empty"] {
+            assert_eq!(
+                bin(BinaryOp::Has, stats.clone(), str(key)).unwrap(),
+                Value::Bool(true),
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn has_is_case_sensitive() {
+        let stats = dict(&[("strength", Value::Int(12))]);
+
+        assert_eq!(
+            bin(BinaryOp::Has, stats, str("Strength")).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn has_does_not_search_the_nested_dicts() {
+        let player = dict(&[("stats", dict(&[("strength", Value::Int(12))]))]);
+
+        assert_eq!(
+            bin(BinaryOp::Has, player.clone(), str("stats")).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            bin(BinaryOp::Has, player, str("strength")).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    /// A variable or a call the parser could not type can turn out to be
+    /// anything; asking a key of it is an error, not a `false`.
+    #[test]
+    fn error_on_has_asked_of_what_is_not_a_dict() {
+        for lhs in [Value::Int(1), Value::Bool(true), str("Alice")] {
+            let received = lhs.vtype().to_string();
+            let err = bin(BinaryOp::Has, lhs, str("strength")).unwrap_err();
+
+            assert!(
+                matches!(
+                    &err,
+                    EvalError::TypeMismatch { op, expected, received: got }
+                        if op == "has" && expected == "dict" && *got == received
+                ),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_on_a_key_that_is_not_a_string() {
+        let err = bin(BinaryOp::Has, dict(&[]), Value::Int(1)).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                EvalError::TypeMismatch { op, expected, received }
+                    if op == "has" && expected == "string" && received == "int"
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn has_reads_its_dict_and_its_key_from_the_variables() {
+        let vars = VarStore::new(HashMap::from([
+            ("stats".to_owned(), dict(&[("strength", Value::Int(12))])),
+            ("key".to_owned(), str("strength")),
+        ]));
+        let expr = Expr::Binary {
+            op: BinaryOp::Has,
+            lhs: Box::new(Expr::Var("stats".to_owned())),
+            rhs: Box::new(Expr::Var("key".to_owned())),
+        };
+
+        let value = expr.eval(&mut EvalCtx {
+            vars: &vars,
+            host: &mut NoHost,
+        });
+
+        assert_eq!(value.unwrap(), Value::Bool(true));
+    }
+
+    /// The use the operator is made for: the dict comes from the game.
+    #[test]
+    fn has_reads_a_dict_the_host_answers_with() {
+        struct StatsHost;
+
+        impl RepliqueHost for StatsHost {
+            fn call(&mut self, name: &str, _: Vec<Value>) -> Result<Value, HostError> {
+                match name {
+                    "get_stats" => Ok(Value::Dict(HashMap::from([(
+                        "strength".to_owned(),
+                        Value::Int(12),
+                    )]))),
+                    _ => Err(HostError::UnknownFunction(name.to_owned())),
+                }
+            }
+        }
+
+        let has = |key: &str| Expr::Binary {
+            op: BinaryOp::Has,
+            lhs: Box::new(call("get_stats", vec![])),
+            rhs: Box::new(Expr::Litteral(str(key))),
+        };
+
+        assert_eq!(
+            eval_with(&has("strength"), &mut StatsHost).unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            eval_with(&has("magic"), &mut StatsHost).unwrap(),
+            Value::Bool(false)
+        );
     }
 }

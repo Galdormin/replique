@@ -240,6 +240,7 @@ pub enum BinaryOp {
     Le,
     Gt,
     Ge,
+    Has,
     Add,
     Sub,
     Mul,
@@ -255,10 +256,11 @@ impl BinaryOp {
 
         // An operator that always gives a bool keeps saying so, even when an
         // operand is only known at run time.
-        if matches!(self, Or | And | Eq | Ne | Lt | Le | Gt | Ge) {
+        if matches!(self, Or | And | Eq | Ne | Lt | Le | Gt | Ge | Has) {
             let known = match self {
                 Or | And => lhs.compatible_with(&Bool) && rhs.compatible_with(&Bool),
                 Eq | Ne => lhs.compatible_with(rhs),
+                Has => lhs.compatible_with(&Dict) && rhs.compatible_with(&String),
                 _ => lhs.compatible_with(&Int) && rhs.compatible_with(&Int),
             };
             return known.then_some(Bool);
@@ -294,6 +296,7 @@ impl std::fmt::Display for BinaryOp {
             Self::Le => "<=",
             Self::Gt => ">",
             Self::Ge => ">=",
+            Self::Has => "has",
             Self::Add => "+",
             Self::Sub => "-",
             Self::Mul => "*",
@@ -429,5 +432,44 @@ mod tests {
             .map(|l| (&src[l.span.start..l.span.end], l.message.as_str()))
             .collect();
         assert_eq!(labels, [(r#""a""#, "string"), ("1", "int")]);
+    }
+
+    #[test]
+    fn has_is_a_bool() {
+        assert_eq!(vtype("{hp: 1} has hp"), Some(ValueType::Bool));
+        assert_eq!(vtype(r#"{hp: 1} has "hp""#), Some(ValueType::Bool));
+    }
+
+    /// Like the other operators that always give a bool, `has` says so even
+    /// when the dict or the key is only known at run time.
+    #[test]
+    fn has_stays_a_bool_on_what_is_only_known_at_run_time() {
+        assert_eq!(vtype("$stats has hp"), Some(ValueType::Bool));
+        assert_eq!(vtype("$stats has $key"), Some(ValueType::Bool));
+        assert_eq!(vtype("get_stats() has hp"), Some(ValueType::Bool));
+        assert_eq!(vtype("$player.stats has hp"), Some(ValueType::Bool));
+        assert_eq!(vtype("not ($stats has hp)"), Some(ValueType::Bool));
+        assert_eq!(vtype("$stats has hp and $gold > 1"), Some(ValueType::Bool));
+    }
+
+    #[test]
+    fn error_on_has_asked_of_what_is_not_a_dict() {
+        assert_eq!(codes("12 has hp"), ["invalid-binary-operands"]);
+        assert_eq!(codes("true has hp"), ["invalid-binary-operands"]);
+        assert_eq!(codes(r#""Alice" has hp"#), ["invalid-binary-operands"]);
+    }
+
+    #[test]
+    fn error_on_a_key_that_is_not_a_string() {
+        assert_eq!(codes("$stats has 12"), ["invalid-binary-operands"]);
+        assert_eq!(codes("$stats has true"), ["invalid-binary-operands"]);
+        assert_eq!(codes("$stats has {hp: 1}"), ["invalid-binary-operands"]);
+    }
+
+    /// `not` binds tighter than `has`, so this asks a bool for a key. It is
+    /// caught here rather than silently read as the negation it looks like.
+    #[test]
+    fn error_on_not_written_in_front_of_has_without_parentheses() {
+        assert_eq!(codes("not $stats has hp"), ["invalid-binary-operands"]);
     }
 }

@@ -129,4 +129,5 @@ run!(
     (dicts, "start"),
     (inline, "start"),
     (loops, "start"),
+    (has, "start"),
 );

@@ -66,6 +66,34 @@
 //!
 //! [`DialogueVm::vars`]: vm::DialogueVm::vars
 //!
+//! `has` tells whether a dictionary holds a key, whatever the value under it.
+//! The key is a bare word, a string or a variable, and only the dictionary
+//! itself is searched, not the ones nested in it:
+//!
+//! ```rust
+//! use replique::RepliqueFile;
+//! use replique::vm::{DialogueEvent, DialogueVm};
+//!
+//! let file = RepliqueFile::from_source(
+//!     r#":= start
+//! [let $stats = {strength: 12}]
+//! [if $stats has strength]
+//!     Alice: I can lift that.
+//! [if not ($stats has magic)]
+//!     Alice: No spell from me, though.
+//! ---
+//! "#,
+//! );
+//! assert!(!file.has_errors());
+//!
+//! let mut vm = DialogueVm::default();
+//! let DialogueEvent::Say { text, .. } = vm.start(file.dialogue.unwrap(), "start").unwrap()
+//! else {
+//!     panic!("expected a line");
+//! };
+//! assert_eq!(text, "I can lift that.");
+//! ```
+//!
 //! # Compiling
 //!
 //! [`RepliqueFile`] is the front door: it parses and compiles a source in one
