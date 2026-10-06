@@ -7,6 +7,7 @@ use bevy::{
 use crate::{
     asset::{RepliqueDialogue, RepliqueDialogueLoader},
     call::command::{DialogueCommandRegistry, run_dialogue_commands},
+    call::features::{DialogueFeatureRegistry, forget_runner},
     call::function::DialogueFunctionRegistry,
     message::{
         DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine, ResumeDialogue,
@@ -31,7 +32,10 @@ impl Plugin for RepliquePlugin {
         );
 
         app.init_resource::<DialogueCommandRegistry>()
-            .init_resource::<DialogueFunctionRegistry>();
+            .init_resource::<DialogueFunctionRegistry>()
+            .init_resource::<DialogueFeatureRegistry>();
+
+        app.add_observer(forget_runner);
 
         app.init_asset::<RepliqueDialogue>()
             .init_asset_loader::<RepliqueDialogueLoader>();

@@ -148,13 +148,39 @@
 //! See [`call::command`] for that, and [`call::function`] for what a
 //! function may return.
 //!
+//! # Subjects and features
+//!
+//! `has` asks the game a yes-or-no question without calling anything:
+//! `[if Alice has Angry]` is whether the entity named `Alice` holds the
+//! component registered as `Angry`. A [`RepliqueSubject`] names the entity,
+//! [`register_replique_feature`] names the component:
+//!
+//! ```rust
+//! # use bevy::prelude::*;
+//! use bevy_replique::prelude::*;
+//!
+//! #[derive(Component)]
+//! struct Angry;
+//!
+//! # let mut app = App::new();
+//! app.register_replique_feature::<Angry>("Angry");
+//!
+//! // `[if Alice has Angry]` is now true, until the component is removed.
+//! app.world_mut().spawn((RepliqueSubject::new("Alice"), Angry));
+//! ```
+//!
+//! A name the game was never given stops the dialogue with an error instead
+//! of answering `false`, so that a typo does not quietly pick the `[else]`.
+//! See [`call::features`] for subjects that only some dialogues can see.
+//!
 //! # Modules
 //!
 //! - [`asset`] loads `.rep` files, and reports parse errors as asset errors.
 //! - [`plugin`] is the plugin and its system sets.
 //! - [`runner`] is the [`DialogueRunner`] component driving one dialogue.
 //! - [`message`] is everything the game and a runner send each other.
-//! - [`call`] is commands, functions, and the conversion of their arguments.
+//! - [`call`] is commands, functions, the conversion of their arguments, and
+//!   the subjects and features `has` asks about.
 //!
 //! # Examples
 //!
@@ -178,6 +204,8 @@
 //! [`DialogueToken`]: call::DialogueToken
 //! [`DialogueCall`]: call::DialogueCall
 //! [`RepliquePlugin`]: plugin::RepliquePlugin
+//! [`RepliqueSubject`]: call::features::RepliqueSubject
+//! [`register_replique_feature`]: call::features::DialogueFeatureAppExt::register_replique_feature
 
 pub mod asset;
 pub mod call;
@@ -194,6 +222,7 @@ pub mod prelude {
     pub use crate::asset::*;
     pub use crate::call::args::*;
     pub use crate::call::command::*;
+    pub use crate::call::features::*;
     pub use crate::call::function::*;
     pub use crate::call::*;
     pub use crate::message::*;
