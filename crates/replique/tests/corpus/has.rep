@@ -28,4 +28,11 @@ Alice: Force : [$stats has force], magie : [$stats has magie].
 [if $mots has has]
     Alice: Ailleurs, has reste un mot comme un autre.
 >> montrer($connue, has)
+
+[if Alice has Colere]
+    Alice: Sans hôte, personne n'a rien.
+[elif "Alice" has "Faim" or not (Bob has Faim)]
+    Alice: Le sujet et la feature sont des textes.
+[let $qui = "Bob"]
+Bob: [$qui has Soif]
 ---

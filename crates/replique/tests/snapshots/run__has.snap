@@ -16,4 +16,7 @@ say Alice "Force : true, magie : false."
   $mots = {has: 1}
 say Alice "Ailleurs, has reste un mot comme un autre."
 command montrer(true, "has")
+say Alice "Le sujet et la feature sont des textes."
+  $qui = "Bob"
+say Bob "false"
 end

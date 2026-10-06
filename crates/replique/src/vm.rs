@@ -1149,6 +1149,105 @@ mod tests {
         assert_eq!(host.called(), ["upper_new"]);
     }
 
+    fn lines_with_host(src: &str) -> Result<Vec<String>, VmError> {
+        let file = crate::RepliqueFile::from_source(src);
+        let dialogue = file.dialogue.expect("the source compiles");
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+        let mut lines = vec![];
+
+        let mut event = vm.start_with(&mut host, dialogue, "start")?;
+        while !matches!(event, DialogueEvent::Finished) {
+            lines.push(expect_line(event).1);
+            event = vm.resume_with(&mut host, ResumeEvent::Advance)?;
+        }
+
+        Ok(lines)
+    }
+
+    #[test]
+    fn a_condition_asks_the_host_for_the_features_of_a_subject() {
+        let lines = lines_with_host(
+            ":= start
+[if Alice has happy]
+    Alice: Contente.
+[if Bob has happy]
+    Bob: Content.
+[elif Bob has sad]
+    Bob: Triste.
+[if Alice has hungry and Bob has hungry]
+    Alice: On mange ?
+[if not (Bob has angry)]
+    Bob: Calme.
+---
+",
+        );
+
+        assert_eq!(
+            lines.unwrap(),
+            ["Contente.", "Triste.", "On mange ?", "Calme."]
+        );
+    }
+
+    #[test]
+    fn the_subject_and_the_feature_can_come_from_variables() {
+        let lines = lines_with_host(
+            ":= start
+[let $who = \"Bob\"]
+[let $mood = \"thirsty\"]
+[if $who has $mood]
+    Bob: Soif.
+Bob: [$who has happy]
+---
+",
+        );
+
+        assert_eq!(lines.unwrap(), ["Soif.", "false"]);
+    }
+
+    /// The same word asks a dict for a key and the host for a feature: what
+    /// decides is what the left side turns out to be.
+    #[test]
+    fn has_tells_a_dict_from_a_subject_at_run_time() {
+        let lines = lines_with_host(
+            ":= start
+[let $it = {sleepy: true}]
+[if $it has sleepy]
+    Alice: Une clé.
+[let $it = \"Alice\"]
+[if $it has happy]
+    Alice: Une feature.
+---
+",
+        );
+
+        assert_eq!(lines.unwrap(), ["Une clé.", "Une feature."]);
+    }
+
+    #[test]
+    fn error_on_a_feature_the_host_does_not_know() {
+        let err =
+            lines_with_host(":= start\n[if Alice has sleepy]\n    Alice: Zzz.\n---\n").unwrap_err();
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::HostError(HostError::UnknownFeature(name)))
+                if name == "sleepy"
+        ));
+    }
+
+    #[test]
+    fn error_on_a_subject_the_host_does_not_know() {
+        let err = lines_with_host(":= start\n[if Caroline has happy]\n    Caroline: Oui.\n---\n")
+            .unwrap_err();
+
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::HostError(HostError::UnknownSubject(name)))
+                if name == "Caroline"
+        ));
+    }
+
     /// The host is only reached when a step names a function: a dialogue that
     /// calls none never touches it.
     #[test]

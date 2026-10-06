@@ -260,7 +260,12 @@ impl BinaryOp {
             let known = match self {
                 Or | And => lhs.compatible_with(&Bool) && rhs.compatible_with(&Bool),
                 Eq | Ne => lhs.compatible_with(rhs),
-                Has => lhs.compatible_with(&Dict) && rhs.compatible_with(&String),
+                // A dict is asked for a key, a string names a subject the
+                // host is asked about.
+                Has => {
+                    (lhs.compatible_with(&Dict) || lhs.compatible_with(&String))
+                        && rhs.compatible_with(&String)
+                }
                 _ => lhs.compatible_with(&Int) && rhs.compatible_with(&Int),
             };
             return known.then_some(Bool);
@@ -453,10 +458,28 @@ mod tests {
     }
 
     #[test]
-    fn error_on_has_asked_of_what_is_not_a_dict() {
+    fn has_takes_a_subject_named_by_a_string() {
+        assert_eq!(vtype("Alice has Angry"), Some(ValueType::Bool));
+        assert_eq!(vtype(r#""Alice" has "Angry""#), Some(ValueType::Bool));
+        assert_eq!(vtype("Alice has $mood"), Some(ValueType::Bool));
+        assert_eq!(vtype("not (Alice has Angry)"), Some(ValueType::Bool));
+        assert_eq!(
+            vtype("Alice has Angry or Bob has Angry"),
+            Some(ValueType::Bool)
+        );
+    }
+
+    #[test]
+    fn error_on_has_asked_of_what_is_neither_a_dict_nor_a_string() {
         assert_eq!(codes("12 has hp"), ["invalid-binary-operands"]);
+        assert_eq!(codes("0.5 has hp"), ["invalid-binary-operands"]);
         assert_eq!(codes("true has hp"), ["invalid-binary-operands"]);
-        assert_eq!(codes(r#""Alice" has hp"#), ["invalid-binary-operands"]);
+    }
+
+    #[test]
+    fn error_on_a_feature_that_is_not_a_string() {
+        assert_eq!(codes("Alice has 12"), ["invalid-binary-operands"]);
+        assert_eq!(codes("Alice has true"), ["invalid-binary-operands"]);
     }
 
     #[test]

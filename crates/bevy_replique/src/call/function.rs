@@ -326,4 +326,8 @@ impl<'a> RepliqueHost for DialogueHost<'a> {
                 }
             })
     }
+
+    fn has_feature(&mut self, _: &str, _: &str) -> Result<bool, HostError> {
+        Ok(false)
+    }
 }

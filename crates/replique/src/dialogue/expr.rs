@@ -156,7 +156,10 @@ impl Expr {
                 ctx.call(name, args).map_err(EvalError::HostError)
             }
             Expr::Unary { op, rhs } => unary(*op, rhs.eval(ctx)?),
-            Expr::Binary { op, lhs, rhs } => binary(*op, lhs.eval(ctx)?, rhs.eval(ctx)?),
+            Expr::Binary { op, lhs, rhs } => {
+                let (lhs, rhs) = (lhs.eval(ctx)?, rhs.eval(ctx)?);
+                binary(ctx.host, *op, lhs, rhs)
+            }
         }
     }
 }
@@ -186,7 +189,13 @@ fn unary(op: UnaryOp, rhs: Value) -> Result<Value, EvalError> {
     }
 }
 
-fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
+/// `host` is only asked by `has`, the one operator a value alone cannot answer.
+fn binary<H: RepliqueHost>(
+    host: &mut H,
+    op: BinaryOp,
+    lhs: Value,
+    rhs: Value,
+) -> Result<Value, EvalError> {
     match op {
         BinaryOp::Or => Ok(Value::Bool(as_bool(op, lhs)? || as_bool(op, rhs)?)),
         BinaryOp::And => Ok(Value::Bool(as_bool(op, lhs)? && as_bool(op, rhs)?)),
@@ -211,25 +220,32 @@ fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
             Ordering::Greater | Ordering::Equal
         ))),
 
-        BinaryOp::Has => Ok(Value::Bool(has(op, lhs, rhs)?)),
+        BinaryOp::Has => Ok(Value::Bool(has(host, op, lhs, rhs)?)),
 
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => arith(op, lhs, rhs),
     }
 }
 
-/// Whether the dict `lhs` holds the key `rhs`, whatever the value under it.
-/// Only the dict itself is looked at: a key of a nested dict is not found.
-fn has(op: BinaryOp, lhs: Value, rhs: Value) -> Result<bool, EvalError> {
+/// Whether `lhs` has what `rhs` names.
+fn has<H: RepliqueHost>(
+    host: &mut H,
+    op: BinaryOp,
+    lhs: Value,
+    rhs: Value,
+) -> Result<bool, EvalError> {
     match (lhs, rhs) {
         (Value::Dict(map), Value::String(key)) => Ok(map.contains_key(&key)),
-        (Value::Dict(_), rhs) => Err(EvalError::TypeMismatch {
+        (Value::String(subject), Value::String(feature)) => {
+            Ok(host.has_feature(&subject, &feature)?)
+        }
+        (Value::Dict(_) | Value::String(_), rhs) => Err(EvalError::TypeMismatch {
             op: op.to_string(),
             expected: ValueType::String.to_string(),
             received: rhs.vtype().to_string(),
         }),
         (lhs, _) => Err(EvalError::TypeMismatch {
             op: op.to_string(),
-            expected: ValueType::Dict.to_string(),
+            expected: format!("{} or {}", ValueType::Dict, ValueType::String),
             received: lhs.vtype().to_string(),
         }),
     }
@@ -358,7 +374,16 @@ mod tests {
     use super::*;
 
     fn bin(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, EvalError> {
-        binary(op, lhs, rhs)
+        binary(&mut NoHost, op, lhs, rhs)
+    }
+
+    fn feature(subject: &str, feature: &str) -> Result<Value, EvalError> {
+        binary(
+            &mut TestHost::default(),
+            BinaryOp::Has,
+            str(subject),
+            str(feature),
+        )
     }
 
     /// Value of `expr` with no variable, against the host it is given.
@@ -731,8 +756,6 @@ mod tests {
         );
     }
 
-    /// `has` asks whether the key is there, not whether what it holds is
-    /// worth something: `0`, `false` and `""` are values like the others.
     #[test]
     fn has_does_not_look_at_the_value_under_the_key() {
         let stats = dict(&[
@@ -775,11 +798,9 @@ mod tests {
         );
     }
 
-    /// A variable or a call the parser could not type can turn out to be
-    /// anything; asking a key of it is an error, not a `false`.
     #[test]
-    fn error_on_has_asked_of_what_is_not_a_dict() {
-        for lhs in [Value::Int(1), Value::Bool(true), str("Alice")] {
+    fn error_on_has_asked_of_what_is_neither_a_dict_nor_a_string() {
+        for lhs in [Value::Int(1), Value::Bool(true), Value::Float(0.5)] {
             let received = lhs.vtype().to_string();
             let err = bin(BinaryOp::Has, lhs, str("strength")).unwrap_err();
 
@@ -787,7 +808,7 @@ mod tests {
                 matches!(
                     &err,
                     EvalError::TypeMismatch { op, expected, received: got }
-                        if op == "has" && expected == "dict" && *got == received
+                        if op == "has" && expected == "dict or string" && *got == received
                 ),
                 "{err}"
             );
@@ -806,6 +827,104 @@ mod tests {
             ),
             "{err}"
         );
+    }
+
+    #[test]
+    fn error_on_a_feature_that_is_not_a_string() {
+        let err = bin(BinaryOp::Has, str("Alice"), Value::Int(1)).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                EvalError::TypeMismatch { op, expected, received }
+                    if op == "has" && expected == "string" && received == "int"
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn has_asks_the_host_for_the_features_of_a_subject() {
+        assert_eq!(feature("Alice", "happy").unwrap(), Value::Bool(true));
+        assert_eq!(feature("Alice", "sad").unwrap(), Value::Bool(false));
+        assert_eq!(feature("Bob", "sad").unwrap(), Value::Bool(true));
+        assert_eq!(feature("Bob", "happy").unwrap(), Value::Bool(false));
+        assert_eq!(feature("Alice", "hungry").unwrap(), Value::Bool(true));
+        assert_eq!(feature("Bob", "hungry").unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn a_feature_no_subject_has_is_still_a_feature() {
+        assert_eq!(feature("Alice", "angry").unwrap(), Value::Bool(false));
+        assert_eq!(feature("Bob", "angry").unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn error_on_a_feature_the_host_does_not_know() {
+        let err = feature("Alice", "sleepy").unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                EvalError::HostError(HostError::UnknownFeature(name)) if name == "sleepy"
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn error_on_a_subject_the_host_does_not_know() {
+        let err = feature("Caroline", "happy").unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                EvalError::HostError(HostError::UnknownSubject(name)) if name == "Caroline"
+            ),
+            "{err}"
+        );
+    }
+
+    /// A dict answers for itself: `sleepy` is a key here, and the host, which
+    /// knows no such feature, is never asked.
+    #[test]
+    fn has_on_a_dict_never_reaches_the_host() {
+        let value = binary(
+            &mut TestHost::default(),
+            BinaryOp::Has,
+            dict(&[("sleepy", Value::Bool(true))]),
+            str("sleepy"),
+        );
+
+        assert_eq!(value.unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn no_host_gives_no_feature_to_anyone() {
+        assert_eq!(
+            bin(BinaryOp::Has, str("Alice"), str("happy")).unwrap(),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn has_reads_its_subject_and_its_feature_from_the_variables() {
+        let vars = VarStore::new(HashMap::from([
+            ("who".to_owned(), str("Bob")),
+            ("mood".to_owned(), str("sad")),
+        ]));
+        let expr = Expr::Binary {
+            op: BinaryOp::Has,
+            lhs: Box::new(Expr::Var("who".to_owned())),
+            rhs: Box::new(Expr::Var("mood".to_owned())),
+        };
+
+        let value = expr.eval(&mut EvalCtx {
+            vars: &vars,
+            host: &mut TestHost::default(),
+        });
+
+        assert_eq!(value.unwrap(), Value::Bool(true));
     }
 
     #[test]
@@ -828,7 +947,6 @@ mod tests {
         assert_eq!(value.unwrap(), Value::Bool(true));
     }
 
-    /// The use the operator is made for: the dict comes from the game.
     #[test]
     fn has_reads_a_dict_the_host_answers_with() {
         struct StatsHost;
@@ -842,6 +960,10 @@ mod tests {
                     )]))),
                     _ => Err(HostError::UnknownFunction(name.to_owned())),
                 }
+            }
+
+            fn has_feature(&mut self, _: &str, _: &str) -> Result<bool, HostError> {
+                Ok(false)
             }
         }
 

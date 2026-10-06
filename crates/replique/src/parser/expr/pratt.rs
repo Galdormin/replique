@@ -834,6 +834,17 @@ mod tests {
     }
 
     #[test]
+    fn has_takes_a_subject_and_a_feature() {
+        assert_eq!(tree("Alice has Angry"), r#"(has "Alice" "Angry")"#);
+        assert_eq!(tree(r#""Alice" has "Angry""#), r#"(has "Alice" "Angry")"#);
+        assert_eq!(tree("$who has Angry"), r#"(has $who "Angry")"#);
+        assert_eq!(
+            tree("Alice has Angry and not (Bob has Angry)"),
+            r#"(and (has "Alice" "Angry") (not (has "Bob" "Angry")))"#
+        );
+    }
+
+    #[test]
     fn has_reads_the_dict_an_attr_leads_to() {
         assert_eq!(
             tree("$player.stats has strength"),

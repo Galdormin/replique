@@ -37,6 +37,13 @@ node start
     branch "$mots has has" @28:1 "[if $mots has has]\n    Alice: Ailleurs, has reste un mot comme un autre."
       line Alice "Ailleurs, has reste un mot comme un autre." @29:5 "Alice: Ailleurs, has reste un mot comme un autre."
   command montrer ["$connue", "has"] @30:4 "montrer($connue, has)"
+  if-group @32:1 "[if Alice has Colere]\n    Alice: Sans hôte, personne n'a rien.\n[elif \"Alice\" has \"Faim\" or not (Bob has Faim)]\n    Alice: Le sujet et la feature sont des textes."
+    branch "Alice has Colere" @32:1 "[if Alice has Colere]\n    Alice: Sans hôte, personne n'a rien."
+      line Alice "Sans hôte, personne n'a rien." @33:5 "Alice: Sans hôte, personne n'a rien."
+    branch "\"Alice\" has \"Faim\" or not (Bob has Faim" @34:1 "[elif \"Alice\" has \"Faim\" or not (Bob has Faim)]\n    Alice: Le sujet et la feature sont des textes."
+      line Alice "Le sujet et la feature sont des textes." @35:5 "Alice: Le sujet et la feature sont des textes."
+  set qui "\"Bob\"" @36:1 "[let $qui = \"Bob\"]"
+  line Bob [$qui has Soif] @37:1 "Bob: [$qui has Soif]"
 
 == diagnostics ==
 (none)
