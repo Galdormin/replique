@@ -106,6 +106,9 @@
 //!
 //! Because every message names its runner, several dialogues can run at once.
 //!
+//! The `#tags` of a line or of a choice, as in `Alice: #angry Give it back!`,
+//! come with it in [`DialogueLine::tags`] and [`DialogueChoice::tags`].
+//!
 //! # Commands and functions
 //!
 //! A dialogue reaches into the game in two ways. A `>> command(...)` *does*
@@ -196,6 +199,8 @@
 //! [`StartDialogue`]: message::StartDialogue
 //! [`DialogueLine`]: message::DialogueLine
 //! [`DialogueChoices`]: message::DialogueChoices
+//! [`DialogueLine::tags`]: message::DialogueLine::tags
+//! [`DialogueChoice::tags`]: message::DialogueChoice::tags
 //! [`DialogueCommand`]: message::DialogueCommand
 //! [`DialogueFinished`]: message::DialogueFinished
 //! [`ResumeDialogue`]: message::ResumeDialogue
@@ -217,7 +222,7 @@ pub mod prelude {
     pub use bevy_replique_derive::{
         RepliqueArgs, RepliqueValue, replique_command, replique_function,
     };
-    pub use replique::dialogue::{NodeName, Value, ValueType};
+    pub use replique::dialogue::{NodeName, Tag, Value, ValueType};
 
     pub use crate::asset::*;
     pub use crate::call::args::*;

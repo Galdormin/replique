@@ -24,6 +24,9 @@
 ; `Alice:` -- the trailing colon belongs to the token
 (speaker) @property
 
+; `#angry` or `#sound:alice_01`, on a line or on a choice
+(tag) @attribute
+
 ; `[$nom]` read in the middle of a line
 (interpolation
   [

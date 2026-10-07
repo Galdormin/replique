@@ -25,6 +25,8 @@ use crate::{
     parser::{Spanned, ast},
 };
 
+pub use crate::parser::Tag;
+
 pub(crate) mod builder;
 pub mod compiler;
 pub(crate) mod expr;
@@ -210,6 +212,8 @@ pub(crate) struct TextLine {
     /// Speaker written before the `:`, or `None` for a line without one.
     pub speaker: Option<String>,
     pub text: Vec<TextPart>,
+    /// The `#tags` of the line, in the order they are written.
+    pub tags: Vec<Tag>,
 }
 
 /// Part of a [`TextLine`]
@@ -236,6 +240,8 @@ impl TryFrom<ast::TextPart> for TextPart {
 pub(crate) struct ChoiceDef {
     /// Text written after the `->`, as the parts it is made of.
     pub text: Vec<TextPart>,
+    /// The `#tags` of the choice, in the order they are written.
+    pub tags: Vec<Tag>,
     /// First step of the body of the choice.
     pub target: StepId,
 }

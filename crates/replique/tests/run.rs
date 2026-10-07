@@ -34,9 +34,14 @@ fn trace(src: &str, entry: &str) -> String {
         render_writes(&mut out, &mut known, &vm);
 
         event = match event {
-            Ok(DialogueEvent::Say { speaker, text }) => {
+            Ok(DialogueEvent::Say {
+                speaker,
+                text,
+                tags,
+            }) => {
                 let speaker = speaker.unwrap_or_else(|| "-".to_owned());
-                let _ = writeln!(out, "say {speaker} {text:?}");
+                let tags: String = tags.iter().map(|tag| format!(" {tag}")).collect();
+                let _ = writeln!(out, "say {speaker} {text:?}{tags}");
                 vm.resume(ResumeEvent::Advance)
             }
             Ok(DialogueEvent::Command { name, args, .. }) => {
@@ -45,8 +50,15 @@ fn trace(src: &str, entry: &str) -> String {
                 vm.resume(ResumeEvent::Advance)
             }
             Ok(DialogueEvent::Choices { choices }) => {
-                let _ = writeln!(out, "choices {choices:?}");
-                let _ = writeln!(out, "  pick 0 {:?}", choices[0]);
+                let texts: Vec<&str> = choices.iter().map(|c| c.text.as_str()).collect();
+                let _ = writeln!(out, "choices {texts:?}");
+                for (index, choice) in choices.iter().enumerate() {
+                    if !choice.tags.is_empty() {
+                        let tags: String = choice.tags.iter().map(|t| format!(" {t}")).collect();
+                        let _ = writeln!(out, "  tags {index}{tags}");
+                    }
+                }
+                let _ = writeln!(out, "  pick 0 {:?}", choices[0].text);
                 vm.resume(ResumeEvent::Select(0))
             }
             Ok(DialogueEvent::Finished) => {
@@ -130,4 +142,5 @@ run!(
     (inline, "start"),
     (loops, "start"),
     (has, "start"),
+    (tags, "start"),
 );

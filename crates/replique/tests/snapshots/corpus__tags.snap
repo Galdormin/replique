@@ -1,0 +1,41 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Je suis en colère" @2:1 "Alice: #colere Je suis en colère #son:alice_01"
+    tag #colere @2:8 "#colere"
+    tag #son:alice_01 @2:35 "#son:alice_01"
+  line Alice "Encore plus." @3:1 "Alice: #humeur:colere Encore plus."
+    tag #humeur:colere @3:8 "#humeur:colere"
+  line - "La pluie se met à tomber." @4:1 "#ambiance:pluie La pluie se met à tomber."
+    tag #ambiance:pluie @4:1 "#ambiance:pluie"
+  line Alice "Rien à signaler." @5:1 "Alice: Rien à signaler."
+  line Alice (empty) @6:1 "Alice: #silence"
+    tag #silence @6:8 "#silence"
+  line Alice "Deux devant, deux derrière." @7:1 "Alice: #a #b Deux devant, deux derrière. #c #d"
+    tag #a @7:8 "#a"
+    tag #b @7:11 "#b"
+    tag #c @7:43 "#c"
+    tag #d @7:46 "#d"
+  set nom "\"Bob\"" @8:1 "[let $nom = \"Bob\"]"
+  line Alice "Bonjour " [$nom] " !" @9:1 "Alice: #salut Bonjour [$nom] ! #volume:0.5"
+    tag #salut @9:8 "#salut"
+    tag #volume:0.5 @9:32 "#volume:0.5"
+  line Alice [$nom] @10:1 "Alice: [$nom] #fin"
+    tag #fin @10:15 "#fin"
+  line Agent #2 "Le numéro n'est pas un tag, pas plus que C# ou le #1." @11:1 "Agent #2: Le numéro n'est pas un tag, pas plus que C# ou le #1."
+  line Alice "#colere s'écrit avec une barre oblique." @12:1 "Alice: \\#colere s'écrit avec une barre oblique."
+  choice-group @13:1 "-> #hostile Prendre le #1 #cout:3\n    Alice: Très bien. #choix:1\n-> Partir [$nom]\n    Alice: Au revoir. #choix:2"
+    choice "Prendre le #1" @13:1 "-> #hostile Prendre le #1 #cout:3\n    Alice: Très bien. #choix:1"
+      tag #hostile @13:4 "#hostile"
+      tag #cout:3 @13:27 "#cout:3"
+      line Alice "Très bien." @14:5 "Alice: Très bien. #choix:1"
+        tag #choix:1 @14:24 "#choix:1"
+    choice "Partir " [$nom] @15:1 "-> Partir [$nom]\n    Alice: Au revoir. #choix:2"
+      line Alice "Au revoir." @16:5 "Alice: Au revoir. #choix:2"
+        tag #choix:2 @16:23 "#choix:2"
+
+== diagnostics ==
+(none)

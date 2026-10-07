@@ -177,6 +177,7 @@ mod tests {
             line: TextLine {
                 speaker: None,
                 text: vec![TextPart::Text("...".into())],
+                tags: vec![],
             },
             next,
         }
@@ -188,6 +189,7 @@ mod tests {
                 .iter()
                 .map(|t| ChoiceDef {
                     text: vec![TextPart::Text("...".into())],
+                    tags: vec![],
                     target: *t,
                 })
                 .collect(),

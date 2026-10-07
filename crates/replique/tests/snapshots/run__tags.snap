@@ -1,0 +1,20 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+say Alice "Je suis en colère" #colere #son:alice_01
+say Alice "Encore plus." #humeur:colere
+say - "La pluie se met à tomber." #ambiance:pluie
+say Alice "Rien à signaler."
+say Alice "" #silence
+say Alice "Deux devant, deux derrière." #a #b #c #d
+  $nom = "Bob"
+say Alice "Bonjour Bob !" #salut #volume:0.5
+say Alice "Bob" #fin
+say Agent #2 "Le numéro n'est pas un tag, pas plus que C# ou le #1."
+say Alice "#colere s'écrit avec une barre oblique."
+choices ["Prendre le #1", "Partir Bob"]
+  tags 0 #hostile #cout:3
+  pick 0 "Prendre le #1"
+say Alice "Très bien." #choix:1
+end

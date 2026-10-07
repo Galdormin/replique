@@ -56,11 +56,16 @@ impl DialogueRunner {
 /// Hands the event the VM stopped on to whoever is listening.
 fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
     match event {
-        DialogueEvent::Say { speaker, text } => {
+        DialogueEvent::Say {
+            speaker,
+            text,
+            tags,
+        } => {
             world.write_message(DialogueLine {
                 token,
                 speaker,
                 text,
+                tags,
             });
         }
         DialogueEvent::Command {
@@ -81,7 +86,11 @@ fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
                 choices: choices
                     .into_iter()
                     .enumerate()
-                    .map(|(index, text)| DialogueChoice { index, text })
+                    .map(|(index, choice)| DialogueChoice {
+                        index,
+                        text: choice.text,
+                        tags: choice.tags,
+                    })
                     .collect(),
             });
         }
@@ -217,7 +226,7 @@ pub(crate) fn resume_dialogue(world: &mut World, mut cursor: Local<MessageCursor
 #[cfg(test)]
 mod tests {
     use bevy::{MinimalPlugins, app::App, asset::AssetPlugin, prelude::*};
-    use replique::{RepliqueFile, parser::diagnostic::Color};
+    use replique::{RepliqueFile, dialogue::Tag, parser::diagnostic::Color};
 
     use super::*;
     use crate::{
@@ -394,6 +403,40 @@ mod tests {
             .flat_map(|group| group.choices.iter().map(|c| c.text.clone()))
             .collect();
         assert_eq!(choices, ["Parler à ALICE"]);
+    }
+
+    #[test]
+    fn the_tags_of_a_line_and_of_a_choice_come_with_their_message() {
+        let mut app = app();
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start\nAlice: #angry Salut #sound:a1\n-> #hostile Partir\n    Bob: Salut.\n---\n",
+        );
+        let runner = spawn_runner(&mut app, dialogue);
+
+        start(&mut app, runner);
+        let line = app
+            .world()
+            .resource::<Messages<DialogueLine>>()
+            .iter_current_update_messages()
+            .next()
+            .expect("a line this frame")
+            .clone();
+        assert_eq!(line.text, "Salut");
+        assert_eq!(
+            line.tags,
+            [Tag::new("angry"), Tag::with_value("sound", "a1")]
+        );
+
+        resume(&mut app, line.token);
+        let choices: Vec<_> = app
+            .world()
+            .resource::<Messages<DialogueChoices>>()
+            .iter_current_update_messages()
+            .flat_map(|group| group.choices.clone())
+            .collect();
+        assert_eq!(choices[0].text, "Partir");
+        assert_eq!(choices[0].tags, [Tag::new("hostile")]);
     }
 
     /// A function nobody registered is an error, and the runner stays where it

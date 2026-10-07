@@ -75,7 +75,11 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
     for stmt in stmts {
         let pad = "  ".repeat(depth);
         match &stmt.kind {
-            StmtKind::Say { speaker, text } => {
+            StmtKind::Say {
+                speaker,
+                text,
+                tags,
+            } => {
                 let speaker = speaker.as_ref().map_or("-", |s| &s.value);
                 let _ = writeln!(
                     out,
@@ -84,6 +88,9 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     render_text(src, text),
                     at(src, stmt.span)
                 );
+                for tag in tags {
+                    let _ = writeln!(out, "{pad}  tag {} {}", tag.value, at(src, tag.span));
+                }
             }
             StmtKind::Jump(target) => {
                 let _ = writeln!(out, "{pad}jump {} {}", target.value, at(src, stmt.span));
@@ -158,13 +165,22 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
             }
             StmtKind::Choice { choices } => {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
-                for Choice { text, body, span } in choices {
+                for Choice {
+                    text,
+                    tags,
+                    body,
+                    span,
+                } in choices
+                {
                     let _ = writeln!(
                         out,
                         "{pad}  choice {} {}",
                         render_text(src, text),
                         at(src, *span)
                     );
+                    for tag in tags {
+                        let _ = writeln!(out, "{pad}    tag {} {}", tag.value, at(src, tag.span));
+                    }
                     render_stmts(out, src, body, depth + 2);
                 }
             }
@@ -227,6 +243,7 @@ corpus!(
     inline,
     loops,
     has,
+    tags,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -248,4 +265,5 @@ corpus!(
     bad_inline,
     bad_loops,
     bad_has,
+    bad_tags,
 );

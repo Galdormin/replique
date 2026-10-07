@@ -11,6 +11,7 @@
 use crate::parser::{
     Span, Spanned,
     diagnostic::{DiagnosticKind, Diagnostics},
+    tags::holds_tag,
 };
 
 /// Kind of a line, along with the part of the line that follows its marker.
@@ -198,7 +199,8 @@ fn malformed_marker(text: &str, offset: usize) -> Option<Spanned<&str>> {
 fn split_speaker(text: &str, offset: usize) -> LineKind<'_> {
     if let Some((prefix, rest)) = text.split_once(':') {
         let speaker = prefix.trim();
-        if !speaker.is_empty() {
+        // The `:` of `#mood:angry` belongs to the tag
+        if !speaker.is_empty() && !holds_tag(prefix) {
             let speaker = Spanned::from_text(speaker, offset);
             let text = Spanned::from_text(rest, offset + prefix.len() + 1);
             return LineKind::Say {
@@ -490,6 +492,42 @@ mod tests {
         assert_eq!(
             classify(":== start", 0),
             LineKind::Malformed(Spanned::from_text(":==", 0))
+        );
+    }
+
+    #[test]
+    fn classify_does_not_take_the_colon_of_a_tag_for_a_speaker() {
+        for text in ["#mood:angry Salut", "Je suis #mood:angry"] {
+            assert_eq!(
+                classify(text, 0),
+                LineKind::Say {
+                    speaker: None,
+                    text: Spanned::from_text(text, 0)
+                },
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_keeps_a_speaker_followed_by_a_tag() {
+        assert_eq!(
+            classify("Alice: #mood:angry Salut", 0),
+            LineKind::Say {
+                speaker: Some(Spanned::from_text("Alice", 0)),
+                text: Spanned::from_text("#mood:angry Salut", 7)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_keeps_a_speaker_holding_a_hash_that_opens_no_tag() {
+        assert_eq!(
+            classify("Agent #2: Salut", 0),
+            LineKind::Say {
+                speaker: Some(Spanned::from_text("Agent #2", 0)),
+                text: Spanned::from_text("Salut", 10)
+            }
         );
     }
 }

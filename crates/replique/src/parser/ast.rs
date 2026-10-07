@@ -11,6 +11,7 @@ use crate::parser::{
     },
     expr::{Expr, ValueType, pratt},
     lines::{LineKind, RawLine, split_lines},
+    tags::{Tag, split_tags, tag_starts, unescape},
 };
 
 /// Represents a dialogue node in the syntax tree
@@ -29,6 +30,9 @@ pub enum StmtKind {
     Say {
         speaker: Option<Spanned<String>>,
         text: Vec<Spanned<TextPart>>,
+        /// The `#tags` written at the start and at the end of the text, in
+        /// the order they are written.
+        tags: Vec<Spanned<Tag>>,
     },
     Choice {
         choices: Vec<Choice>,
@@ -82,6 +86,9 @@ pub struct Choice {
     /// Text of the choice after `->`, split into its literal and inline
     /// expression parts.
     pub text: Vec<Spanned<TextPart>>,
+    /// The `#tags` written at the start and at the end of the text, in the
+    /// order they are written.
+    pub tags: Vec<Spanned<Tag>>,
     /// List of all Stmt in the body
     pub body: Vec<Stmt>,
     /// From the `->` to the end of its body.
@@ -337,6 +344,9 @@ impl<'a> Parser<'a> {
             }
             self.bump();
 
+            // Checked once the tags are off: a choice made of tags alone
+            // gives the player nothing to pick.
+            let (text, tags) = self.split_tags(text);
             if text.value.is_empty() {
                 self.diags.push(line.span, DiagnosticKind::EmptyChoiceText);
             }
@@ -345,6 +355,7 @@ impl<'a> Parser<'a> {
             let span = body.last().map_or(line.span, |s| line.span.join(s.span));
             choices.push(Choice {
                 text: self.parse_text_line(text),
+                tags,
                 body,
                 span,
             });
@@ -539,13 +550,17 @@ impl<'a> Parser<'a> {
         let line = self.bump().expect("Already checked by peek.");
 
         match line.kind {
-            LineKind::Say { speaker, text } => Some(Stmt {
-                kind: StmtKind::Say {
-                    speaker: speaker.map(|s| s.into()),
-                    text: self.parse_text_line(text),
-                },
-                span: line.span,
-            }),
+            LineKind::Say { speaker, text } => {
+                let (text, tags) = self.split_tags(text);
+                Some(Stmt {
+                    kind: StmtKind::Say {
+                        speaker: speaker.map(|s| s.into()),
+                        text: self.parse_text_line(text),
+                        tags,
+                    },
+                    span: line.span,
+                })
+            }
             LineKind::Jump(name) if is_valid_ident(name.value) => Some(Stmt {
                 kind: StmtKind::Jump(name.into()),
                 span: line.span,
@@ -803,6 +818,7 @@ impl<'a> Parser<'a> {
 
         while let Some(open) = text[rest..].find('[') {
             let open = rest + open;
+            self.report_misplaced_tags(text, span, rest..open);
             push_text(&mut parts, text, span, rest..open);
 
             let Some(close) = text[open..].find(']') else {
@@ -827,8 +843,41 @@ impl<'a> Parser<'a> {
             rest = close + 1;
         }
 
+        self.report_misplaced_tags(text, span, rest..text.len());
         push_text(&mut parts, text, span, rest..text.len());
         parts
+    }
+
+    /// Takes the tags off both ends of `text`, reporting a name given twice.
+    fn split_tags<'t>(&mut self, text: Spanned<&'t str>) -> (Spanned<&'t str>, Vec<Spanned<Tag>>) {
+        let (text, tags) = split_tags(text);
+
+        for (at, tag) in tags.iter().enumerate() {
+            if let Some(first) = tags[..at].iter().find(|t| t.value.name == tag.value.name) {
+                self.diags.push_labeled(
+                    tag.span,
+                    DiagnosticKind::DuplicateTag(tag.value.name.clone()),
+                    vec![Label {
+                        span: first.span,
+                        message: "first given here".to_owned(),
+                    }],
+                );
+            }
+        }
+
+        (text, tags)
+    }
+
+    /// Warns about what opens like a tag in `text[range]`. The tags that are
+    /// read are already gone by then, so anything left is in the middle of
+    /// the line, or is not shaped like a tag, and stays in the text.
+    fn report_misplaced_tags(&mut self, text: &str, span: Span, range: std::ops::Range<usize>) {
+        for word in tag_starts(text, range) {
+            self.diags.push(
+                Span::from_length(span.start + word.start, word.len()),
+                DiagnosticKind::MisplacedTag(text[word].to_owned()),
+            );
+        }
     }
 }
 
@@ -847,7 +896,7 @@ fn push_text(
 
     let part_span = Span::from_length(span.start + range.start, range.len());
     parts.push(Spanned::new(
-        TextPart::Text(text[range].to_owned()),
+        TextPart::Text(unescape(&text[range])),
         part_span,
     ));
 }
@@ -1593,5 +1642,286 @@ mod tests {
     #[test]
     fn a_command_is_not_confused_with_a_malformed_marker() {
         assert_eq!(codes(&in_filled_node(">>>play")), ["malformed-marker"]);
+    }
+
+    /// Speaker, text and tags of the only line of `src`, the tags as they are written.
+    fn said(line: &str) -> (Option<String>, String, Vec<String>) {
+        let StmtKind::Say {
+            speaker,
+            text,
+            tags,
+        } = only_stmt(&in_node(line))
+        else {
+            panic!("expected a line");
+        };
+
+        let text = text
+            .iter()
+            .map(|part| match &part.value {
+                TextPart::Text(text) => text.as_str(),
+                TextPart::Expression(_) => "[]",
+            })
+            .collect();
+        let tags = tags.iter().map(|tag| tag.value.to_string()).collect();
+
+        (speaker.map(|s| s.value), text, tags)
+    }
+
+    #[test]
+    fn tags_are_read_at_both_ends_of_a_line() {
+        assert_eq!(
+            said("Alice: #angry I am angry #sound:alice_01"),
+            (
+                Some("Alice".into()),
+                "I am angry".into(),
+                vec!["#angry".into(), "#sound:alice_01".into()]
+            )
+        );
+        assert!(codes(&in_node("Alice: #angry I am angry #sound:alice_01")).is_empty());
+    }
+
+    #[test]
+    fn a_line_without_a_speaker_takes_tags_too() {
+        assert_eq!(
+            said("#angry The door slams. #sound:door"),
+            (
+                None,
+                "The door slams.".into(),
+                vec!["#angry".into(), "#sound:door".into()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_tag_with_a_value_is_not_read_as_a_speaker() {
+        assert_eq!(
+            said("#mood:angry I am angry"),
+            (None, "I am angry".into(), vec!["#mood:angry".into()])
+        );
+        assert_eq!(
+            said("Alice: #mood:angry I am angry"),
+            (
+                Some("Alice".into()),
+                "I am angry".into(),
+                vec!["#mood:angry".into()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_speaker_can_hold_a_hash_that_opens_no_tag() {
+        assert_eq!(
+            said("Agent #2: Bonjour"),
+            (Some("Agent #2".into()), "Bonjour".into(), vec![])
+        );
+    }
+
+    #[test]
+    fn a_line_can_be_nothing_but_tags() {
+        assert_eq!(
+            said("Alice: #angry"),
+            (Some("Alice".into()), String::new(), vec!["#angry".into()])
+        );
+    }
+
+    #[test]
+    fn tags_go_around_the_inline_expressions() {
+        assert_eq!(
+            said("Alice: #a Bonjour [$nom] ! #b"),
+            (
+                Some("Alice".into()),
+                "Bonjour [] !".into(),
+                vec!["#a".into(), "#b".into()]
+            )
+        );
+        assert_eq!(
+            said("Alice: #a [$nom] #b"),
+            (
+                Some("Alice".into()),
+                "[]".into(),
+                vec!["#a".into(), "#b".into()]
+            )
+        );
+    }
+
+    #[test]
+    fn what_is_inside_the_brackets_is_never_a_tag() {
+        let line = r##"Alice: [upper("#x")] et [$a has "#y"]"##;
+
+        assert_eq!(said(line).2, Vec::<String>::new());
+        assert!(codes(&in_node(line)).is_empty());
+    }
+
+    #[test]
+    fn warning_on_a_tag_in_the_middle_of_a_line() {
+        let line = "Alice: I am #angry today";
+
+        assert_eq!(
+            said(line),
+            (Some("Alice".into()), "I am #angry today".into(), vec![])
+        );
+        assert_eq!(codes(&in_node(line)), ["misplaced-tag"]);
+    }
+
+    #[test]
+    fn warning_on_a_word_that_opens_like_a_tag_and_is_not_one() {
+        assert_eq!(codes(&in_node("Alice: Salut #mood:")), ["misplaced-tag"]);
+        assert_eq!(codes(&in_node("Alice: #mood:a:b Salut")), ["misplaced-tag"]);
+    }
+
+    #[test]
+    fn a_misplaced_tag_does_not_make_a_speaker_of_what_comes_before() {
+        let line = "I am #mood:angry today";
+
+        assert_eq!(said(line), (None, "I am #mood:angry today".into(), vec![]));
+        assert_eq!(codes(&in_node(line)), ["misplaced-tag"]);
+    }
+
+    #[test]
+    fn a_misplaced_tag_is_only_a_warning() {
+        let parsed = parse(&in_node("Alice: I am #angry today"));
+
+        assert_eq!(parsed.diagnostics.errors(), 0);
+    }
+
+    #[test]
+    fn the_warning_points_at_the_word() {
+        let src = in_node("Alice: I am #angry, today");
+        let parsed = parse(&src);
+        let diag = parsed.diagnostics.iter().next().expect("one diagnostic");
+
+        assert_eq!(&src[diag.span.start..diag.span.end], "#angry,");
+    }
+
+    #[test]
+    fn an_escaped_hash_is_text() {
+        let line = r"Alice: \#angry is trending, says \#bob";
+
+        assert_eq!(
+            said(line),
+            (
+                Some("Alice".into()),
+                "#angry is trending, says #bob".into(),
+                vec![]
+            )
+        );
+        assert!(codes(&in_node(line)).is_empty());
+    }
+
+    #[test]
+    fn a_hash_that_opens_no_tag_is_text() {
+        let line = "Alice: We are #1 in C# and F#";
+
+        assert_eq!(
+            said(line),
+            (
+                Some("Alice".into()),
+                "We are #1 in C# and F#".into(),
+                vec![]
+            )
+        );
+        assert!(codes(&in_node(line)).is_empty());
+    }
+
+    #[test]
+    fn warning_on_a_tag_given_twice() {
+        let line = "Alice: #mood:angry Hi #mood:sad";
+
+        assert_eq!(said(line).2, ["#mood:angry", "#mood:sad"].map(String::from));
+        assert_eq!(codes(&in_node(line)), ["duplicate-tag"]);
+        assert_eq!(parse(&in_node(line)).diagnostics.errors(), 0);
+    }
+
+    #[test]
+    fn two_different_tags_are_not_a_duplicate() {
+        assert!(codes(&in_node("Alice: #mood:angry Hi #sound:angry")).is_empty());
+    }
+
+    #[test]
+    fn the_spans_of_the_tags_point_at_them() {
+        let src = in_node("Alice: #angry Hi #sound:a1");
+        let StmtKind::Say { tags, .. } = only_stmt(&src) else {
+            panic!("expected a line");
+        };
+
+        let words: Vec<_> = tags
+            .iter()
+            .map(|tag| &src[tag.span.start..tag.span.end])
+            .collect();
+        assert_eq!(words, ["#angry", "#sound:a1"]);
+    }
+
+    fn choices_of(src: &str) -> Vec<(String, Vec<String>)> {
+        let parsed = parse(src);
+        let StmtKind::Choice { choices } = &parsed.nodes[0].body[0].kind else {
+            panic!("expected a choice");
+        };
+
+        choices
+            .iter()
+            .map(|choice| {
+                let text = choice
+                    .text
+                    .iter()
+                    .map(|part| match &part.value {
+                        TextPart::Text(text) => text.as_str(),
+                        TextPart::Expression(_) => "[]",
+                    })
+                    .collect();
+                let tags = choice.tags.iter().map(|t| t.value.to_string()).collect();
+                (text, tags)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_choice_takes_tags_like_a_line_does() {
+        let src = ":= start
+-> #hostile Attaquer [$nom] #cost:3
+    Alice: ok
+-> Rester
+    Alice: ok
+---
+";
+
+        assert_eq!(
+            choices_of(src),
+            [
+                (
+                    "Attaquer []".to_owned(),
+                    vec!["#hostile".to_owned(), "#cost:3".to_owned()]
+                ),
+                ("Rester".to_owned(), vec![]),
+            ]
+        );
+        assert!(codes(src).is_empty());
+    }
+
+    #[test]
+    fn warnings_on_the_tags_of_a_choice() {
+        let src = ":= start
+-> Je #doute un peu
+    Alice: ok
+-> #ton:sec Partir #ton:doux
+    Alice: ok
+---
+";
+
+        assert_eq!(codes(src), ["misplaced-tag", "duplicate-tag"]);
+        assert_eq!(parse(src).diagnostics.errors(), 0);
+    }
+
+    #[test]
+    fn error_on_a_choice_made_of_tags_alone() {
+        let src = ":= start\n-> #seul\n    Alice: ok\n-> Rester\n    Alice: ok\n---\n";
+
+        assert_eq!(codes(src), ["empty-choice-text"]);
+    }
+
+    #[test]
+    fn a_hash_that_opens_no_tag_is_fine_on_a_choice() {
+        let src = ":= start\n-> Prendre le #1\n    Alice: ok\n-> Rester\n    Alice: ok\n---\n";
+
+        assert!(codes(src).is_empty());
     }
 }
