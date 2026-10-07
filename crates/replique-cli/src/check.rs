@@ -1,12 +1,19 @@
 use std::fs;
 
 use anyhow::{Context, Result};
-use replique::parser::diagnostic::Color;
+use replique::parser::{diagnostic::Color, validation::RepliqueSchema};
 
 use crate::{CheckArgs, Format, Outcome, discover::discover};
 
 pub fn check(args: &CheckArgs) -> Result<Outcome> {
     let paths = discover(&args.paths, args.recursive)?;
+
+    let maybe_schema = if let Some(path) = &args.schema {
+        let data = fs::read_to_string(path)?;
+        Some(RepliqueSchema::from_toml(&data)?)
+    } else {
+        None
+    };
 
     let mut errors = 0;
     let mut warnings = 0;
@@ -15,7 +22,11 @@ pub fn check(args: &CheckArgs) -> Result<Outcome> {
     for path in &paths {
         let src = fs::read_to_string(path).with_context(|| format!("file: {}", path.display()))?;
 
-        let parsed = replique::parser::parse(&src);
+        let mut parsed = replique::parser::parse(&src);
+
+        if let Some(schema) = &maybe_schema {
+            parsed.validate(&schema);
+        }
 
         let diagnostics = parsed.diagnostics.with_path(path);
         errors += diagnostics.errors();
