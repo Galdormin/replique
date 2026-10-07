@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use replique::parser::ast::{NodeDecl, Stmt, StmtKind};
+use replique::parser::ast::{NodeDecl, StmtKind};
 use tower_lsp_server::ls_types::{CompletionItem, CompletionItemKind, InsertTextFormat};
 
 /// Every name a document knows, sorted by what it names.
@@ -33,8 +33,8 @@ impl Completion {
         for node in nodes {
             completion.nodes.insert(node.name.value.clone());
 
-            for Stmt { kind, .. } in &node.body {
-                completion.populate(kind);
+            for stmt in node.all_statements() {
+                completion.populate(&stmt.kind);
             }
         }
 
@@ -54,24 +54,6 @@ impl Completion {
             }
             StmtKind::Set { name, .. } => {
                 self.vars.insert(name.value.clone());
-            }
-            StmtKind::If {
-                branches,
-                otherwise,
-            } => {
-                let stmts = otherwise
-                    .as_deref()
-                    .unwrap_or(&[])
-                    .iter()
-                    .chain(branches.iter().flat_map(|b| &b.body));
-                for stmt in stmts {
-                    self.populate(&stmt.kind);
-                }
-            }
-            StmtKind::Choice { choices } => {
-                for stmt in choices.iter().flat_map(|c| &c.body) {
-                    self.populate(&stmt.kind);
-                }
             }
             _ => (),
         }
@@ -240,6 +222,26 @@ Alice: Here we are.
 
     fn completion() -> Completion {
         Completion::new(&parse(SOURCE).nodes)
+    }
+
+    #[test]
+    fn collects_names_from_a_loop_and_from_what_it_holds() {
+        let src = "\
+:= start
+[let $gold = 0]
+[while $gold < 3]
+    [let $turn = $gold]
+    David: Hidden in a loop
+    >> wait()
+    -> Deeper still
+        Eve: Hidden in a choice in a loop
+---
+";
+        let c = Completion::new(&parse(src).nodes);
+
+        assert!(c.characters.contains("David") && c.characters.contains("Eve"));
+        assert!(c.commands.contains("wait"));
+        assert!(c.vars.contains("turn"));
     }
 
     #[test]

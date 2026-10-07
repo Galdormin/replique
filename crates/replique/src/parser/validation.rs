@@ -21,7 +21,8 @@
 //! change_mood = "2"
 //! ```
 //!
-//! Every part is optional. A tag without a `scope` is one any line can carry;
+//! Every part is optional, and a part left out is not checked: without
+//! `speakers`, anyone can speak. A tag without a `scope` is one any line can carry;
 //! with one, only the lines of those speakers can. A function or a command is
 //! given the number of arguments it takes: `"2"` for exactly two, `"1+"` for
 //! one or more, `"1-2"` for one or two.
@@ -46,6 +47,11 @@ use std::{collections::BTreeMap, fmt, str::FromStr};
 
 use serde::Deserialize;
 use thiserror::Error;
+
+use crate::parser::{
+    ast::{NodeDecl, StmtKind},
+    diagnostic::{DiagnosticKind, Diagnostics},
+};
 
 use super::ast::is_valid_ident;
 
@@ -242,6 +248,27 @@ impl RepliqueSchema {
             functions: calls("functions", raw.functions)?,
             commands: calls("commands", raw.commands)?,
         })
+    }
+
+    /// Validate a [`NodeDecl`] based on the data of the Schema
+    ///
+    /// A schema that names no speaker says nothing about who can speak, and
+    /// no line is checked against it.
+    pub fn validate(&self, node: &NodeDecl, diags: &mut Diagnostics) {
+        for stmt in node.all_statements() {
+            if let StmtKind::Say {
+                speaker: Some(speaker),
+                ..
+            } = &stmt.kind
+                && !self.speakers.is_empty()
+                && !self.speakers.contains(&speaker.value)
+            {
+                diags.push(
+                    speaker.span,
+                    DiagnosticKind::UnknownSpeaker(speaker.value.clone()),
+                );
+            }
+        }
     }
 }
 
@@ -567,5 +594,73 @@ change_mood = "2"
 
         assert!(message.contains("line 4"), "{message}");
         assert!(message.contains("scop"), "{message}");
+    }
+
+    /// Codes of what validating `src` against `schema` reports, and the text
+    /// each one points at.
+    fn validated(schema: &str, src: &str) -> Vec<(&'static str, String)> {
+        let mut parsed = crate::parser::parse(src);
+        assert!(parsed.diagnostics.is_empty(), "the dialogue parses cleanly");
+
+        parsed.validate(&self::schema(schema));
+
+        parsed
+            .diagnostics
+            .iter()
+            .map(|d| (d.kind.code(), src[d.span.start..d.span.end].to_owned()))
+            .collect()
+    }
+
+    const DIALOGUE: &str = ":= start
+Robin: Salut.
+Fany: Coucou.
+Une ligne sans personne.
+[if true]
+    -> Partir
+        Bertile: Au revoir.
+    -> Rester
+        Fanny: Reste.
+---
+";
+
+    #[test]
+    fn warning_on_a_speaker_the_schema_does_not_name() {
+        assert_eq!(
+            validated(r#"speakers = ["Robin", "Fanny", "Bertille"]"#, DIALOGUE),
+            [
+                ("unknown-speaker", "Fany".to_owned()),
+                ("unknown-speaker", "Bertile".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dialogue_whose_speakers_are_all_named_is_valid() {
+        assert!(
+            validated(
+                r#"speakers = ["Robin", "Fany", "Bertile", "Fanny"]"#,
+                DIALOGUE
+            )
+            .is_empty()
+        );
+    }
+
+    /// A schema without `speakers` says nothing about who can speak: it does
+    /// not make everyone unknown.
+    #[test]
+    fn a_schema_without_speakers_checks_no_speaker() {
+        assert!(validated("", DIALOGUE).is_empty());
+        assert!(validated("speakers = []", DIALOGUE).is_empty());
+        assert!(validated("[commands]\nwave = \"0\"\n", DIALOGUE).is_empty());
+    }
+
+    #[test]
+    fn an_unknown_speaker_is_only_a_warning() {
+        let mut parsed = crate::parser::parse(DIALOGUE);
+
+        parsed.validate(&schema(r#"speakers = ["Robin"]"#));
+
+        assert_eq!(parsed.diagnostics.errors(), 0);
+        assert!(!parsed.diagnostics.is_empty());
     }
 }

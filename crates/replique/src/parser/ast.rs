@@ -25,6 +25,15 @@ pub struct NodeDecl {
     pub full_span: Span,
 }
 
+impl NodeDecl {
+    /// Every statement of the node. The blocks are flattened.
+    pub fn all_statements(&self) -> Vec<&Stmt> {
+        let mut all = vec![];
+        flatten_stmts(&self.body, &mut all);
+        all
+    }
+}
+
 #[derive(Debug)]
 pub enum StmtKind {
     Say {
@@ -738,7 +747,7 @@ impl<'a> Parser<'a> {
         // Detect jump to uknown node
         let names = nodes.iter().map(|n| &n.name.value).collect::<Vec<_>>();
         for node in nodes {
-            self.validate_jumps(&node.body, &names);
+            self.validate_jumps(node, &names);
         }
 
         // Detect reserved node names
@@ -780,24 +789,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Walks choice bodies too: a `=>` most often sits inside an option.
-    fn validate_jumps(&mut self, stmts: &[Stmt], names: &[&String]) {
-        for stmt in stmts {
-            match &stmt.kind {
-                StmtKind::Jump(name)
-                    if !names.contains(&&name.value) && name.value != END_NODE_NAME =>
-                {
-                    self.diags.push(
-                        stmt.span,
-                        DiagnosticKind::JumpToUnknownNode(name.value.clone()),
-                    );
-                }
-                StmtKind::Choice { choices } => {
-                    for choice in choices {
-                        self.validate_jumps(&choice.body, names);
-                    }
-                }
-                _ => (),
+    /// Reports every `=>` of `node` that leads nowhere.
+    fn validate_jumps(&mut self, node: &NodeDecl, names: &[&String]) {
+        for stmt in node.all_statements() {
+            if let StmtKind::Jump(name) = &stmt.kind
+                && !names.contains(&&name.value)
+                && name.value != END_NODE_NAME
+            {
+                self.diags.push(
+                    stmt.span,
+                    DiagnosticKind::JumpToUnknownNode(name.value.clone()),
+                );
             }
         }
     }
@@ -905,6 +907,40 @@ pub(super) fn is_valid_ident(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Pushes every statement of `stmts` onto `all`, each one right before the
+/// statements of the blocks it opens.
+fn flatten_stmts<'a>(stmts: &'a [Stmt], all: &mut Vec<&'a Stmt>) {
+    for stmt in stmts {
+        all.push(stmt);
+
+        match &stmt.kind {
+            StmtKind::Choice { choices } => {
+                for choice in choices {
+                    flatten_stmts(&choice.body, all);
+                }
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                for branch in branches {
+                    flatten_stmts(&branch.body, all);
+                }
+                if let Some(body) = otherwise {
+                    flatten_stmts(body, all);
+                }
+            }
+            StmtKind::While { body, .. } => flatten_stmts(body, all),
+            StmtKind::Say { .. }
+            | StmtKind::Jump(_)
+            | StmtKind::Command { .. }
+            | StmtKind::Set { .. }
+            | StmtKind::Break
+            | StmtKind::Continue => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1923,5 +1959,87 @@ mod tests {
         let src = ":= start\n-> Prendre le #1\n    Alice: ok\n-> Rester\n    Alice: ok\n---\n";
 
         assert!(codes(src).is_empty());
+    }
+
+    /// What each statement of the only node of `src` is, flattened.
+    fn flattened(src: &str) -> Vec<String> {
+        parse(src).nodes[0]
+            .all_statements()
+            .into_iter()
+            .map(|stmt| match &stmt.kind {
+                StmtKind::Say { speaker, .. } => {
+                    format!("say {}", speaker.as_ref().map_or("-", |s| &s.value))
+                }
+                StmtKind::Choice { .. } => "choice".to_owned(),
+                StmtKind::Jump(name) => format!("jump {}", name.value),
+                StmtKind::Command { name, .. } => format!("command {}", name.value),
+                StmtKind::Set { name, .. } => format!("set {}", name.value),
+                StmtKind::If { .. } => "if".to_owned(),
+                StmtKind::While { .. } => "while".to_owned(),
+                StmtKind::Break => "break".to_owned(),
+                StmtKind::Continue => "continue".to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn all_statements_of_a_flat_node_are_its_body() {
+        assert_eq!(
+            flattened(":= start\nAlice: un\n>> wave()\n[let $n = 1]\n=> END\n---\n"),
+            ["say Alice", "command wave", "set n", "jump END"]
+        );
+    }
+
+    #[test]
+    fn all_statements_open_every_kind_of_block() {
+        let src = ":= start
+[let $n = 0]
+[if $n > 0]
+    A: if
+[elif $n < 0]
+    B: elif
+[else]
+    C: else
+[while $n < 2]
+    D: while
+    [break]
+-> un
+    E: choice
+-> deux
+    F: choice
+G: end
+---
+";
+
+        assert_eq!(
+            flattened(src),
+            [
+                "set n", "if", "say A", "say B", "say C", "while", "say D", "break", "choice",
+                "say E", "say F", "say G",
+            ]
+        );
+    }
+
+    #[test]
+    fn all_statements_go_as_deep_as_the_blocks_do() {
+        let src = ":= start
+[let $n = 0]
+[while $n < 2]
+    [if $n == 0]
+        -> un
+            [while true]
+                A: deep
+                [continue]
+        -> deux
+            B: deep
+---
+";
+
+        assert_eq!(
+            flattened(src),
+            [
+                "set n", "while", "if", "choice", "while", "say A", "continue", "say B",
+            ]
+        );
     }
 }

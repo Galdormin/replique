@@ -169,6 +169,8 @@ pub enum DiagnosticKind {
     MisplacedTag(String),
     /// The same tag name twice on a line: `#mood:angry Hi #mood:sad`.
     DuplicateTag(String),
+    /// The speaker of a line is unknown in the schema.
+    UnknownSpeaker(String),
 }
 
 impl DiagnosticKind {
@@ -224,7 +226,8 @@ impl DiagnosticKind {
             | TrailingAfterCommand
             | DuplicateKey(_)
             | MisplacedTag(_)
-            | DuplicateTag(_) => Severity::Warning,
+            | DuplicateTag(_)
+            | UnknownSpeaker(_) => Severity::Warning,
         }
     }
 
@@ -280,6 +283,7 @@ impl DiagnosticKind {
             StrayLoopControl(_) => "stray-loop-control",
             MisplacedTag(_) => "misplaced-tag",
             DuplicateTag(_) => "duplicate-tag",
+            UnknownSpeaker(_) => "unknown-speaker",
         }
     }
 }
@@ -394,6 +398,7 @@ impl fmt::Display for DiagnosticKind {
                 "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
+            UnknownSpeaker(speaker) => write!(f, "speaker {speaker} is unknown"),
         }
     }
 }

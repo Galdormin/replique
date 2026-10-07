@@ -1,6 +1,6 @@
 //! Parser for Replique
 
-use crate::parser::{ast::NodeDecl, diagnostic::Diagnostics};
+use crate::parser::{ast::NodeDecl, diagnostic::Diagnostics, validation::RepliqueSchema};
 
 pub mod ast;
 pub mod diagnostic;
@@ -24,6 +24,14 @@ pub const RESERVED_COMMAND_NAMES: &[&str] = &[AWAIT_KEYWORD];
 pub struct Parsed {
     pub nodes: Vec<NodeDecl>,
     pub diagnostics: Diagnostics,
+}
+
+impl Parsed {
+    pub fn validate(&mut self, schema: &RepliqueSchema) {
+        for node in &self.nodes {
+            schema.validate(node, &mut self.diagnostics);
+        }
+    }
 }
 
 /// Used to index text & tokens in the file (in byte)
