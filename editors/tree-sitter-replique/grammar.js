@@ -210,7 +210,7 @@ module.exports = grammar({
       const table = [
         [1, choice("or", "||")],
         [2, choice("and", "&&")],
-        [3, choice("==", "!=", "<", "<=", ">", ">=")],
+        [3, choice("==", "!=", "<", "<=", ">", ">=", "has")],
         [4, choice("+", "-")],
         [5, choice("*", "/")],
       ];
