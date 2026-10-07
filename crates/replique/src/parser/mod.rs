@@ -7,6 +7,7 @@ pub mod diagnostic;
 pub(crate) mod expr;
 mod lines;
 mod tags;
+pub mod validation;
 
 pub use ast::parse;
 pub use tags::Tag;
