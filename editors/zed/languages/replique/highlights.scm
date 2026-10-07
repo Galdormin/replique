@@ -45,6 +45,7 @@
   "not"
   "and"
   "or"
+  "has"
 ] @keyword.operator
 
 [
