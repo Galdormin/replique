@@ -107,8 +107,7 @@
 //! Because every message names its runner, several dialogues can run at once.
 //!
 //! The `#tags` of a line or of a choice, as in `Alice: #angry Give it back!`,
-//! come with it in [`DialogueLine::tags`] and [`DialogueChoice::tags`], apart
-//! from the text: a mood for the portrait, a sound to play, without a command.
+//! come with it in [`DialogueLine::tags`] and [`DialogueChoice::tags`].
 //!
 //! # Commands and functions
 //!
