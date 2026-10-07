@@ -838,11 +838,20 @@
           "named": true
         },
         {
+          "type": "tag",
+          "named": true
+        },
+        {
           "type": "text_chunk",
           "named": true
         }
       ]
     }
+  },
+  {
+    "type": "text_chunk",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "unary_expression",
@@ -980,6 +989,10 @@
   },
   {
     "type": "!=",
+    "named": false
+  },
+  {
+    "type": "#",
     "named": false
   },
   {
@@ -1148,7 +1161,7 @@
     "named": true
   },
   {
-    "type": "text_chunk",
+    "type": "tag",
     "named": true
   },
   {

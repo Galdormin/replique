@@ -10,17 +10,21 @@
 // with, and indentation only nests blocks. This grammar mirrors that first
 // pass and stays flat -- see README.md for why.
 
-// A run of text up to the end of the line, stopping before a `//` comment or
-// the `[` of an inline expression.
-const REST_OF_LINE = /([^\n\[/]|\/[^\/\n])+/;
+// A run of text up to the end of the line, stopping before a `//` comment,
+// the `[` of an inline expression or the `#` of a tag. It never starts with a
+// blank: one that could would take the blank before a tag along with it, and
+// hand it to the tag.
+const REST_OF_LINE =
+  /(([^\n\[/# \t]|\/[^\/\n])#*|#[^A-Za-z_\n\[/#])(([^\n\[/# \t]|\/[^\/\n])#*|[ \t]|#[^A-Za-z_\n\[/#])*/;
 
 // Same, but stopping at the first `:` as well: what precedes a speaker colon.
-const UNTIL_COLON = /([^\n:\[/]|\/[^\/\n:])*/;
+const UNTIL_COLON =
+  /#*(([^\n:\[/# \t]|\/[^\/\n:])#*|[ \t]|#[^A-Za-z_\n:\[/#])*/;
 
 // First character of a line that carries text rather than a marker. A marker
 // character is allowed when the one after it cannot complete a marker: `-> a`
-// is a choice, `-5 degrees` is text.
-const TEXT_HEAD = /[^\n\-=:>\[/ \t]|[-=>][^-=:>\n]|\/[^\/\n]/;
+// is a choice, `-5 degrees` is text. A `#` is left to the tag it may open.
+const TEXT_HEAD = /[^\n\-=:>\[/ \t#]|[-=>][^-=:>\n]|\/[^\/\n]/;
 
 module.exports = grammar({
   name: "replique",
@@ -124,18 +128,40 @@ module.exports = grammar({
         ),
       ),
 
-    // What a line says: runs of plain text and the inline expressions between
-    // them. `Bonjour [$nom] !` is three parts.
-    text: ($) => prec.right(repeat1(choice($.text_chunk, $.interpolation))),
+    // What a line says: runs of plain text, the inline expressions between
+    // them and its tags. `Bonjour [$nom] ! #joie` is four parts.
+    text: ($) => prec.right(repeat1($._text_part)),
+
+    _text_part: ($) =>
+      choice(
+        $.text_chunk,
+        $.interpolation,
+        $.tag,
+        alias($._lone_hash, $.text_chunk),
+      ),
 
     // A line with no speaker.
     _bare_text_line: ($) =>
       prec.right(
         seq(
-          choice(alias($._bare_text, $.text_chunk), $.interpolation),
-          repeat(choice($.text_chunk, $.interpolation)),
+          choice(
+            alias($._bare_text, $.text_chunk),
+            $.interpolation,
+            $.tag,
+            alias($._lone_hash, $.text_chunk),
+          ),
+          repeat($._text_part),
         ),
       ),
+
+    // #angry or #sound:alice_01
+    // Where it stands on the line is not checked: a tag in the middle of a
+    // sentence is reported by `replique-lsp`, which has the real parser.
+    tag: (_) => token(/#[A-Za-z_][A-Za-z0-9_]*(:[A-Za-z0-9_.\-]+)?/),
+
+    // A `#` that opens no tag and that no run of text took: at the end of a
+    // line, or right before a `[`.
+    _lone_hash: (_) => token(prec(-1, "#")),
 
     // [$nom] or [$argent * 100], read in the middle of a line.
     interpolation: ($) => seq("[", $._expression, "]"),
