@@ -226,6 +226,7 @@ corpus!(
     dicts,
     inline,
     loops,
+    has,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -246,4 +247,5 @@ corpus!(
     bad_dicts,
     bad_inline,
     bad_loops,
+    bad_has,
 );

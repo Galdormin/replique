@@ -1,0 +1,49 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set stats "{force: 12, agilite: 0}" @2:1 "[let $stats = {force: 12, agilite: 0}]"
+  set joueur "{nom: \"Alice\", stats: $stats}" @3:1 "[let $joueur = {nom: \"Alice\", stats: $stats}]"
+  if-group @5:1 "[if $stats has force]\n    Alice: J'ai de la force."
+    branch "$stats has force" @5:1 "[if $stats has force]\n    Alice: J'ai de la force."
+      line Alice "J'ai de la force." @6:5 "Alice: J'ai de la force."
+  if-group @7:1 "[if $stats has \"agilite\"]\n    Alice: Une agilité de zéro reste une agilité."
+    branch "$stats has \"agilite\"" @7:1 "[if $stats has \"agilite\"]\n    Alice: Une agilité de zéro reste une agilité."
+      line Alice "Une agilité de zéro reste une agilité." @8:5 "Alice: Une agilité de zéro reste une agilité."
+  if-group @9:1 "[if $stats has magie]\n    Alice: Je ne dis jamais ça.\n[else]\n    Alice: Pas de magie."
+    branch "$stats has magie" @9:1 "[if $stats has magie]\n    Alice: Je ne dis jamais ça."
+      line Alice "Je ne dis jamais ça." @10:5 "Alice: Je ne dis jamais ça."
+    else
+      line Alice "Pas de magie." @12:5 "Alice: Pas de magie."
+  set cle "\"force\"" @14:1 "[let $cle = \"force\"]"
+  if-group @15:1 "[if $stats has $cle]\n    Alice: La clé peut venir d'une variable."
+    branch "$stats has $cle" @15:1 "[if $stats has $cle]\n    Alice: La clé peut venir d'une variable."
+      line Alice "La clé peut venir d'une variable." @16:5 "Alice: La clé peut venir d'une variable."
+  if-group @17:1 "[if $joueur.stats has force and $joueur.stats.force > 10]\n    Alice: Je suis forte."
+    branch "$joueur.stats has force and $joueur.stats.force > 10" @17:1 "[if $joueur.stats has force and $joueur.stats.force > 10]\n    Alice: Je suis forte."
+      line Alice "Je suis forte." @18:5 "Alice: Je suis forte."
+  if-group @19:1 "[if $joueur has force]\n    Alice: `has` ne cherche pas dans les dicts imbriqués."
+    branch "$joueur has force" @19:1 "[if $joueur has force]\n    Alice: `has` ne cherche pas dans les dicts imbriqués."
+      line Alice "`has` ne cherche pas dans les dicts imbriqués." @20:5 "Alice: `has` ne cherche pas dans les dicts imbriqués."
+  if-group @21:1 "[if not ($joueur has magie)]\n    Alice: Toujours pas de magie."
+    branch "not ($joueur has magie" @21:1 "[if not ($joueur has magie)]\n    Alice: Toujours pas de magie."
+      line Alice "Toujours pas de magie." @22:5 "Alice: Toujours pas de magie."
+  set connue "$stats has force" @24:1 "[let $connue = $stats has force]"
+  line Alice "Force : " [$stats has force] ", magie : " [$stats has magie] "." @25:1 "Alice: Force : [$stats has force], magie : [$stats has magie]."
+  set mots "{has: 1}" @27:1 "[let $mots = {has: 1}]"
+  if-group @28:1 "[if $mots has has]\n    Alice: Ailleurs, has reste un mot comme un autre."
+    branch "$mots has has" @28:1 "[if $mots has has]\n    Alice: Ailleurs, has reste un mot comme un autre."
+      line Alice "Ailleurs, has reste un mot comme un autre." @29:5 "Alice: Ailleurs, has reste un mot comme un autre."
+  command montrer ["$connue", "has"] @30:4 "montrer($connue, has)"
+  if-group @32:1 "[if Alice has Colere]\n    Alice: Sans hôte, personne n'a rien.\n[elif \"Alice\" has \"Faim\" or not (Bob has Faim)]\n    Alice: Le sujet et la feature sont des textes."
+    branch "Alice has Colere" @32:1 "[if Alice has Colere]\n    Alice: Sans hôte, personne n'a rien."
+      line Alice "Sans hôte, personne n'a rien." @33:5 "Alice: Sans hôte, personne n'a rien."
+    branch "\"Alice\" has \"Faim\" or not (Bob has Faim" @34:1 "[elif \"Alice\" has \"Faim\" or not (Bob has Faim)]\n    Alice: Le sujet et la feature sont des textes."
+      line Alice "Le sujet et la feature sont des textes." @35:5 "Alice: Le sujet et la feature sont des textes."
+  set qui "\"Bob\"" @36:1 "[let $qui = \"Bob\"]"
+  line Bob [$qui has Soif] @37:1 "Bob: [$qui has Soif]"
+
+== diagnostics ==
+(none)

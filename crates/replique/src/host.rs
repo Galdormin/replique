@@ -13,10 +13,18 @@ pub enum HostError {
     Failed { name: String, message: String },
     #[error("builtin `{name}`: `{message}`")]
     BuiltinFailed { name: String, message: String },
+    #[error("subject {0} is unknown")]
+    UnknownSubject(String),
+    #[error("feature {0} is unknown")]
+    UnknownFeature(String),
 }
 
 pub trait RepliqueHost {
+    /// Call a function through the host. Function are instantaneous
     fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, HostError>;
+
+    /// Check if a subject has the given feature
+    fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError>;
 }
 
 /// Default host, no additional function available.
@@ -26,6 +34,10 @@ pub struct NoHost;
 impl RepliqueHost for NoHost {
     fn call(&mut self, name: &str, _: Vec<Value>) -> Result<Value, HostError> {
         Err(HostError::UnknownFunction(name.into()))
+    }
+
+    fn has_feature(&mut self, _: &str, _: &str) -> Result<bool, HostError> {
+        Ok(false)
     }
 }
 
@@ -77,6 +89,22 @@ pub(crate) mod test {
                 },
                 "boom" => Err(failed("this function always fails")),
                 _ => Err(HostError::UnknownFunction(name.to_owned())),
+            }
+        }
+
+        fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError> {
+            let supported_features = ["happy", "sad", "angry", "hungry", "thirsty"];
+            let alice_features = ["happy", "hungry"];
+            let bob_features = ["sad", "hungry", "thirsty"];
+
+            if !supported_features.contains(&name) {
+                return Err(HostError::UnknownFeature(name.to_string()));
+            }
+
+            match subject {
+                "Alice" => Ok(alice_features.contains(&name)),
+                "Bob" => Ok(bob_features.contains(&name)),
+                _ => Err(HostError::UnknownSubject(subject.to_string())),
             }
         }
     }

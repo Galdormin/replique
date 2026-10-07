@@ -7,20 +7,32 @@
 //!
 //! [`DialogueCall`] is the third piece, shared by both: what the arguments do
 //! not say, namely which dialogue is calling and how to resume it.
+//!
+//! [`features`] is apart from the three: it answers `has`, which calls no
+//! system and reads straight off the entities and components the game names.
 
 use bevy::{
     ecs::{
         entity::Entity,
         resource::Resource,
         system::{Query, Res, SystemParam},
+        world::{Mut, World},
     },
     prelude::Deref,
 };
+use replique::{
+    dialogue::Value,
+    host::{HostError, RepliqueHost},
+};
 
-use crate::runner::DialogueRunner;
+use crate::{
+    call::{args::DialogueArgs, function::DialogueFunctionRegistry},
+    runner::DialogueRunner,
+};
 
 pub mod args;
 pub mod command;
+pub mod features;
 pub mod function;
 
 /// The right to resume one suspension of one dialogue.
@@ -105,5 +117,46 @@ impl DialogueCall<'_, '_> {
             .get(runner)
             .ok()
             .map(|r| r.current_token(runner))
+    }
+}
+
+/// What the VM asks when an expression names a function, or asks a subject
+/// for a feature.
+pub(crate) struct DialogueHost<'a> {
+    world: &'a mut World,
+    /// The token of the suspension the runner is heading into, which is what
+    /// [`DialogueCall`] hands to a function called on the way there.
+    ///
+    /// [`DialogueCall`]: crate::call::DialogueCall
+    token: DialogueToken,
+}
+
+impl<'a> DialogueHost<'a> {
+    pub fn new(world: &'a mut World, token: DialogueToken) -> Self {
+        Self { world, token }
+    }
+}
+
+impl<'a> RepliqueHost for DialogueHost<'a> {
+    fn call(&mut self, name: &str, args: Vec<Value>) -> Result<Value, HostError> {
+        let token = self.token;
+
+        self.world
+            .resource_scope(|world, registry: Mut<DialogueFunctionRegistry>| {
+                if let Some(func) = registry.functions.get(name) {
+                    // Posed around the call, as it is for a command, so that
+                    // `DialogueCall` answers the same way on both sides.
+                    world.insert_resource(CurrentDialogueCall(token));
+                    let answer = func(world, DialogueArgs(args));
+                    world.remove_resource::<CurrentDialogueCall>();
+                    answer
+                } else {
+                    Err(HostError::UnknownFunction(name.into()))
+                }
+            })
+    }
+
+    fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError> {
+        features::has_feature(self.world, self.token.runner(), subject, name)
     }
 }

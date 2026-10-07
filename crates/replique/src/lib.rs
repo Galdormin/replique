@@ -66,6 +66,40 @@
 //!
 //! [`DialogueVm::vars`]: vm::DialogueVm::vars
 //!
+//! `has` tells whether a dictionary holds a key, whatever the value under it.
+//! The key is a bare word, a string or a variable, and only the dictionary
+//! itself is searched, not the ones nested in it:
+//!
+//! ```rust
+//! use replique::RepliqueFile;
+//! use replique::vm::{DialogueEvent, DialogueVm};
+//!
+//! let file = RepliqueFile::from_source(
+//!     r#":= start
+//! [let $stats = {strength: 12}]
+//! [if $stats has strength]
+//!     Alice: I can lift that.
+//! [if not ($stats has magic)]
+//!     Alice: No spell from me, though.
+//! ---
+//! "#,
+//! );
+//! assert!(!file.has_errors());
+//!
+//! let mut vm = DialogueVm::default();
+//! let DialogueEvent::Say { text, .. } = vm.start(file.dialogue.unwrap(), "start").unwrap()
+//! else {
+//!     panic!("expected a line");
+//! };
+//! assert_eq!(text, "I can lift that.");
+//! ```
+//!
+//! Asked of a string instead of a dictionary, `has` goes to the host: in
+//! `[if Alice has Angry]`, [`RepliqueHost::has_feature`] says whether the
+//! subject `Alice` has the feature `Angry`.
+//!
+//! [`RepliqueHost::has_feature`]: host::RepliqueHost::has_feature
+//!
 //! # Compiling
 //!
 //! [`RepliqueFile`] is the front door: it parses and compiles a source in one
@@ -134,9 +168,12 @@
 //!
 //! A `[function(...)]` *answers* something, and never suspends. The VM resolves
 //! it through the [`RepliqueHost`] the caller passes to
-//! [`DialogueVm::start_with`] and [`DialogueVm::resume_with`]:
+//! [`DialogueVm::start_with`] and [`DialogueVm::resume_with`]. The same host
+//! answers `has` when it is asked of a subject rather than of a dictionary:
 //!
 //! ```rust
+//! use std::collections::HashMap;
+//!
 //! use replique::RepliqueFile;
 //! use replique::dialogue::Value;
 //! use replique::host::{HostError, RepliqueHost};
@@ -144,6 +181,7 @@
 //!
 //! struct Game {
 //!     gold: i64,
+//!     moods: HashMap<&'static str, &'static str>,
 //! }
 //!
 //! impl RepliqueHost for Game {
@@ -153,19 +191,41 @@
 //!             _ => Err(HostError::UnknownFunction(name.into())),
 //!         }
 //!     }
+//!
+//!     fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError> {
+//!         if !["Angry", "Happy"].contains(&name) {
+//!             return Err(HostError::UnknownFeature(name.into()));
+//!         }
+//!
+//!         match self.moods.get(subject) {
+//!             Some(mood) => Ok(*mood == name),
+//!             None => Err(HostError::UnknownSubject(subject.into())),
+//!         }
+//!     }
 //! }
 //!
-//! let file = RepliqueFile::from_source(":= start\nAlice: You have [gold()] coins.\n---\n");
+//! let file = RepliqueFile::from_source(
+//!     r#":= start
+//! [if Alice has Angry]
+//!     Alice: Give me back my [gold()] coins!
+//! [else]
+//!     Alice: You have [gold()] coins.
+//! ---
+//! "#,
+//! );
 //! let dialogue = file.dialogue.unwrap();
 //!
-//! let mut game = Game { gold: 12 };
+//! let mut game = Game {
+//!     gold: 12,
+//!     moods: HashMap::from([("Alice", "Angry")]),
+//! };
 //! let mut vm = DialogueVm::default();
 //!
 //! let DialogueEvent::Say { text, .. } = vm.start_with(&mut game, dialogue, "start").unwrap()
 //! else {
 //!     panic!("expected a line");
 //! };
-//! assert_eq!(text, "You have 12 coins.");
+//! assert_eq!(text, "Give me back my 12 coins!");
 //! ```
 //!
 //! The [`builtins`] are available to every dialogue, whatever the host.

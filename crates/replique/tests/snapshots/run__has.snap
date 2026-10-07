@@ -1,0 +1,22 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+  $joueur = {nom: "Alice", stats: {agilite: 0, force: 12}}
+  $stats = {agilite: 0, force: 12}
+say Alice "J'ai de la force."
+say Alice "Une agilité de zéro reste une agilité."
+say Alice "Pas de magie."
+  $cle = "force"
+say Alice "La clé peut venir d'une variable."
+say Alice "Je suis forte."
+say Alice "Toujours pas de magie."
+  $connue = true
+say Alice "Force : true, magie : false."
+  $mots = {has: 1}
+say Alice "Ailleurs, has reste un mot comme un autre."
+command montrer(true, "has")
+say Alice "Le sujet et la feature sont des textes."
+  $qui = "Bob"
+say Bob "false"
+end

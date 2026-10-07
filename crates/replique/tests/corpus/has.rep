@@ -1,0 +1,38 @@
+:= start
+[let $stats = {force: 12, agilite: 0}]
+[let $joueur = {nom: "Alice", stats: $stats}]
+
+[if $stats has force]
+    Alice: J'ai de la force.
+[if $stats has "agilite"]
+    Alice: Une agilité de zéro reste une agilité.
+[if $stats has magie]
+    Alice: Je ne dis jamais ça.
+[else]
+    Alice: Pas de magie.
+
+[let $cle = "force"]
+[if $stats has $cle]
+    Alice: La clé peut venir d'une variable.
+[if $joueur.stats has force and $joueur.stats.force > 10]
+    Alice: Je suis forte.
+[if $joueur has force]
+    Alice: `has` ne cherche pas dans les dicts imbriqués.
+[if not ($joueur has magie)]
+    Alice: Toujours pas de magie.
+
+[let $connue = $stats has force]
+Alice: Force : [$stats has force], magie : [$stats has magie].
+
+[let $mots = {has: 1}]
+[if $mots has has]
+    Alice: Ailleurs, has reste un mot comme un autre.
+>> montrer($connue, has)
+
+[if Alice has Colere]
+    Alice: Sans hôte, personne n'a rien.
+[elif "Alice" has "Faim" or not (Bob has Faim)]
+    Alice: Le sujet et la feature sont des textes.
+[let $qui = "Bob"]
+Bob: [$qui has Soif]
+---

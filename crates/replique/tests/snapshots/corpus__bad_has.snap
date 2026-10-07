@@ -1,0 +1,31 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set stats "{force: 12}" @2:1 "[let $stats = {force: 12}]"
+  if-group @3:1 "[if $stats has]\n    Alice: Il manque la clé."
+    branch "$stats has" @3:1 "[if $stats has]\n    Alice: Il manque la clé."
+      line Alice "Il manque la clé." @4:5 "Alice: Il manque la clé."
+  if-group @5:1 "[if has force]\n    Alice: Il manque le dict."
+  if-group @7:1 "[if 12 has force]\n    Alice: Un nombre n'a pas de clé."
+  if-group @9:1 "[if $stats has 12]\n    Alice: Une clé est un texte."
+  if-group @11:1 "[if not $stats has force]\n    Alice: Il faut des parenthèses autour du has."
+  if-group @13:1 "[if $stats has force magie]\n    Alice: Une seule clé à la fois."
+  line Alice "Il me reste " [$stats has] " à dire." @15:1 "Alice: Il me reste [$stats has] à dire."
+
+== diagnostics ==
+error expected-expression @3:15 ""
+error unexpected-text-in-bracket @5:9 "force"
+error invalid-binary-operands @7:5 "12 has force"
+  label int @7:5 "12"
+  label string @7:12 "force"
+error invalid-binary-operands @9:5 "$stats has 12"
+  label unknown @9:5 "$stats"
+  label int @9:16 "12"
+error invalid-binary-operands @11:5 "not $stats has force"
+  label bool @11:5 "not $stats"
+  label string @11:20 "force"
+error unexpected-text-in-bracket @13:22 "magie"
+error expected-expression @15:31 ""

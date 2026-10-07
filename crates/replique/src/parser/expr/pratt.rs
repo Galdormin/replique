@@ -482,6 +482,7 @@ fn infix(token: &Spanned<Token>) -> Option<(Spanned<BinaryOp>, u8, u8)> {
         Token::Le => (BinaryOp::Le, 5, 6),
         Token::Gt => (BinaryOp::Gt, 5, 6),
         Token::Ge => (BinaryOp::Ge, 5, 6),
+        Token::Ident(ref word) if word == "has" => (BinaryOp::Has, 5, 6),
         Token::Plus => (BinaryOp::Add, 7, 8),
         Token::Minus => (BinaryOp::Sub, 7, 8),
         Token::Star => (BinaryOp::Mul, 9, 10),
@@ -818,5 +819,92 @@ mod tests {
 
         assert_eq!(codes, ["expected-arg-separator"]);
         assert_eq!(tree, "(+ <error> 4)");
+    }
+
+    #[test]
+    fn has_takes_a_dict_and_a_key() {
+        assert_eq!(tree("$stats has strength"), r#"(has $stats "strength")"#);
+        assert_eq!(
+            tree(r#"$stats has "strength""#),
+            r#"(has $stats "strength")"#
+        );
+        assert_eq!(tree("$stats has $key"), "(has $stats $key)");
+        assert_eq!(tree("get_stats() has hp"), r#"(has (get_stats) "hp")"#);
+        assert_eq!(tree("{hp: 1} has hp"), r#"(has {hp: 1} "hp")"#);
+    }
+
+    #[test]
+    fn has_takes_a_subject_and_a_feature() {
+        assert_eq!(tree("Alice has Angry"), r#"(has "Alice" "Angry")"#);
+        assert_eq!(tree(r#""Alice" has "Angry""#), r#"(has "Alice" "Angry")"#);
+        assert_eq!(tree("$who has Angry"), r#"(has $who "Angry")"#);
+        assert_eq!(
+            tree("Alice has Angry and not (Bob has Angry)"),
+            r#"(and (has "Alice" "Angry") (not (has "Bob" "Angry")))"#
+        );
+    }
+
+    #[test]
+    fn has_reads_the_dict_an_attr_leads_to() {
+        assert_eq!(
+            tree("$player.stats has strength"),
+            r#"(has $player.stats "strength")"#
+        );
+    }
+
+    #[test]
+    fn has_binds_like_a_comparison() {
+        assert_eq!(
+            tree("$a has hp and $a.hp > 10"),
+            r#"(and (has $a "hp") (> $a.hp 10))"#
+        );
+        assert_eq!(
+            tree("$a has hp or $b has hp"),
+            r#"(or (has $a "hp") (has $b "hp"))"#
+        );
+        assert_eq!(tree("$a has hp == true"), r#"(== (has $a "hp") true)"#);
+    }
+
+    #[test]
+    fn not_binds_tighter_than_has() {
+        assert_eq!(tree("not $a has hp"), r#"(has (not $a) "hp")"#);
+        assert_eq!(tree("not ($a has hp)"), r#"(not (has $a "hp"))"#);
+    }
+
+    #[test]
+    fn has_stays_a_word_where_a_value_is_expected() {
+        assert_eq!(tree("has"), r#""has""#);
+        assert_eq!(tree("$a has has"), r#"(has $a "has")"#);
+        assert_eq!(tree("{has: 1}"), "{has: 1}");
+        assert_eq!(tree("say(has)"), r#"(say "has")"#);
+        assert_eq!(tree("has($a)"), "(has $a)");
+        assert_eq!(tree("$a.has"), "$a.has");
+    }
+
+    #[test]
+    fn a_word_starting_with_has_is_not_the_operator() {
+        let mut diags = Diagnostics::from_src("$a hash");
+        let mut parser = ExprParser::new(&Spanned::from_text("$a hash", 0), &mut diags);
+
+        assert_eq!(render(&parser.expr(0).value), "$a");
+        assert!(parser.peek().is_some(), "`hash` is left unread");
+    }
+
+    #[test]
+    fn error_on_has_without_a_key() {
+        assert_eq!(codes("$stats has"), ["expected-expression"]);
+    }
+
+    #[test]
+    fn the_span_of_has_covers_both_sides() {
+        let src = "$stats has strength";
+        let mut diags = Diagnostics::from_src(src);
+        let expr = ExprParser::new(&Spanned::from_text(src, 0), &mut diags).expr(0);
+
+        assert_eq!(expr.span, Span::new(0, src.len()));
+        let Expr::Binary { op, .. } = expr.value else {
+            panic!("expected a binary expression");
+        };
+        assert_eq!(&src[op.span.start..op.span.end], "has");
     }
 }

@@ -16,7 +16,7 @@ use replique::{
 
 use crate::{
     asset::RepliqueDialogue,
-    call::{DialogueToken, function::DialogueHost},
+    call::{DialogueHost, DialogueToken},
     message::{
         DialogueChoice, DialogueChoices, DialogueCommand, DialogueFinished, DialogueLine,
         ResumeDialogue, StartDialogue,
