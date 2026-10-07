@@ -86,6 +86,10 @@
             "named": false
           },
           {
+            "type": "has",
+            "named": false
+          },
+          {
             "type": "or",
             "named": false
           },
@@ -1109,6 +1113,10 @@
   },
   {
     "type": "false",
+    "named": false
+  },
+  {
+    "type": "has",
     "named": false
   },
   {
