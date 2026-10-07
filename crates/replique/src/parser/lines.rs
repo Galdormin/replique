@@ -199,8 +199,7 @@ fn malformed_marker(text: &str, offset: usize) -> Option<Spanned<&str>> {
 fn split_speaker(text: &str, offset: usize) -> LineKind<'_> {
     if let Some((prefix, rest)) = text.split_once(':') {
         let speaker = prefix.trim();
-        // The `:` of `#mood:angry` belongs to the tag: what stands before it
-        // is no one's name.
+        // The `:` of `#mood:angry` belongs to the tag
         if !speaker.is_empty() && !holds_tag(prefix) {
             let speaker = Spanned::from_text(speaker, offset);
             let text = Spanned::from_text(rest, offset + prefix.len() + 1);

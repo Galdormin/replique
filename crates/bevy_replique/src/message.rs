@@ -15,7 +15,10 @@
 //! [`DialogueRunner`]: crate::runner::DialogueRunner
 
 use bevy::{ecs::entity::Entity, prelude::Message};
-use replique::{dialogue::Value, vm::ResumeEvent};
+use replique::{
+    dialogue::{Tag, Value},
+    vm::ResumeEvent,
+};
 
 use crate::call::DialogueToken;
 
@@ -36,6 +39,8 @@ pub struct DialogueLine {
     pub speaker: Option<String>,
     /// Text of the line.
     pub text: String,
+    /// The `#tags` of the line.
+    pub tags: Vec<Tag>,
 }
 
 /// The dialogue reached a `>>` command.
@@ -85,6 +90,8 @@ pub struct DialogueChoice {
     pub index: usize,
     /// Text of the choice.
     pub text: String,
+    /// The `#tags` of the choice.
+    pub tags: Vec<Tag>,
 }
 
 /// The dialogue reached its end.
