@@ -24,7 +24,8 @@
 //! else {
 //!     panic!("expected a choice");
 //! };
-//! assert_eq!(choices, ["Hello", "Bye"]);
+//! let texts: Vec<_> = choices.iter().map(|choice| choice.text.as_str()).collect();
+//! assert_eq!(texts, ["Hello", "Bye"]);
 //!
 //! let DialogueEvent::Say { text, .. } = vm.resume(ResumeEvent::Select(1)).unwrap()
 //! else {
@@ -43,7 +44,7 @@ use thiserror::Error;
 use crate::{
     builtins::lookup,
     dialogue::{
-        Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, TextPart, Value,
+        Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Tag, TextPart, Value,
         expr::{EvalError, Expr},
     },
     host::{HostError, NoHost, RepliqueHost},
@@ -58,6 +59,22 @@ use crate::{
 /// caller.
 const MAX_STEPS: usize = 200;
 
+/// One entry of [`DialogueEvent::Choices`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice {
+    /// What the player reads.
+    pub text: String,
+    /// The `#tags` of the choice, in the order they are written.
+    pub tags: Vec<Tag>,
+}
+
+/// The text of the choice, without its tags.
+impl std::fmt::Display for Choice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
 /// What the VM asks the host to do before the dialogue can go on.
 ///
 /// Returned by [`DialogueVm::start`] and [`DialogueVm::resume`]. Every variant
@@ -70,6 +87,8 @@ pub enum DialogueEvent {
         /// Who is talking, or `None` for a line written without a speaker.
         speaker: Option<String>,
         text: String,
+        /// The `#tags` of the line, in the order they are written.
+        tags: Vec<Tag>,
     },
     /// A command for the host to interpret, such as `>> add_scene(Alice)`.
     /// Meaning and arguments are entirely up to the host. Resume with
@@ -82,8 +101,8 @@ pub enum DialogueEvent {
     /// A choice to offer to the player. Resume with
     /// [`ResumeEvent::Select`] carrying the index of the chosen entry.
     Choices {
-        /// Texts of the choices, in the order they were written.
-        choices: Vec<String>,
+        /// The choices, in the order they were written.
+        choices: Vec<Choice>,
     },
     /// The dialogue reached its end. The VM is no longer suspended, so
     /// [`DialogueVm::resume`] now fails and only
@@ -342,6 +361,7 @@ impl DialogueVm {
                     return Ok(DialogueEvent::Say {
                         speaker: line.speaker,
                         text,
+                        tags: line.tags,
                     });
                 }
                 StepKind::Command { command, next } => {
@@ -392,16 +412,21 @@ impl DialogueVm {
                 }
                 StepKind::Choice { choices } => {
                     let targets = choices.iter().map(|c| c.target).collect();
-                    let texts = choices
+                    let choices = choices
                         .into_iter()
-                        .map(|c| self.render_text(host, c.text))
-                        .collect::<Result<_, _>>()?;
+                        .map(|c| {
+                            Ok(Choice {
+                                text: self.render_text(host, c.text)?,
+                                tags: c.tags,
+                            })
+                        })
+                        .collect::<Result<_, VmError>>()?;
 
                     self.state = VmState::Suspended {
                         cursor,
                         at: SuspendedAt::Choice { targets },
                     };
-                    return Ok(DialogueEvent::Choices { choices: texts });
+                    return Ok(DialogueEvent::Choices { choices });
                 }
                 StepKind::Jump(name) => cursor = self.get_cursor_for_node(name)?,
                 StepKind::End => {
@@ -524,6 +549,7 @@ mod tests {
             line: TextLine {
                 speaker: speaker.map(String::from),
                 text: vec![TextPart::Text(text.into())],
+                tags: vec![],
             },
             next,
         }
@@ -565,10 +591,12 @@ mod tests {
             choices: vec![
                 ChoiceDef {
                     text: vec![TextPart::Text("go left".into())],
+                    tags: vec![],
                     target: left,
                 },
                 ChoiceDef {
                     text: vec![TextPart::Text("go right".into())],
+                    tags: vec![],
                     target: right,
                 },
             ],
@@ -592,14 +620,14 @@ mod tests {
 
     fn expect_line(event: DialogueEvent) -> (Option<String>, String) {
         match event {
-            DialogueEvent::Say { speaker, text } => (speaker, text),
+            DialogueEvent::Say { speaker, text, .. } => (speaker, text),
             _ => panic!("expected a Line event"),
         }
     }
 
     fn expect_choices(event: DialogueEvent) -> Vec<String> {
         match event {
-            DialogueEvent::Choices { choices } => choices,
+            DialogueEvent::Choices { choices } => choices.into_iter().map(|c| c.text).collect(),
             _ => panic!("expected a Choices event"),
         }
     }
@@ -1115,6 +1143,7 @@ mod tests {
             line: TextLine {
                 speaker: None,
                 text: vec![TextPart::Text(prefix.into()), TextPart::Expression(expr)],
+                tags: vec![],
             },
             next,
         }
@@ -1246,6 +1275,123 @@ Bob: [$who has happy]
             VmError::ExprEvalError(EvalError::HostError(HostError::UnknownSubject(name)))
                 if name == "Caroline"
         ));
+    }
+
+    /// Speaker, text and tags of every line `src` plays from `start`.
+    fn said(src: &str) -> Vec<(Option<String>, String, Vec<Tag>)> {
+        let file = crate::RepliqueFile::from_source(src);
+        let mut vm = DialogueVm::default();
+        let mut lines = vec![];
+
+        let mut event = vm
+            .start(file.dialogue.expect("the source compiles"), "start")
+            .unwrap();
+        while let DialogueEvent::Say {
+            speaker,
+            text,
+            tags,
+        } = event
+        {
+            lines.push((speaker, text, tags));
+            event = vm.resume(ResumeEvent::Advance).unwrap();
+        }
+
+        lines
+    }
+
+    #[test]
+    fn a_line_reaches_the_host_with_its_tags() {
+        let lines = said(
+            ":= start
+Alice: #angry Je suis en colère #sound:alice_01
+#mood:calm La porte se referme.
+Alice: Plus rien à dire.
+---
+",
+        );
+
+        assert_eq!(
+            lines,
+            [
+                (
+                    Some("Alice".to_owned()),
+                    "Je suis en colère".to_owned(),
+                    vec![Tag::new("angry"), Tag::with_value("sound", "alice_01")]
+                ),
+                (
+                    None,
+                    "La porte se referme.".to_owned(),
+                    vec![Tag::with_value("mood", "calm")]
+                ),
+                (
+                    Some("Alice".to_owned()),
+                    "Plus rien à dire.".to_owned(),
+                    vec![]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_tags_are_not_part_of_the_text() {
+        let lines = said(
+            ":= start
+[let $nom = \"Bob\"]
+Alice: #a Bonjour [$nom] ! #b
+Alice: #seul
+Alice: \\#rien n'est un tag ici
+---
+",
+        );
+
+        let texts: Vec<_> = lines.iter().map(|(_, text, _)| text.as_str()).collect();
+        assert_eq!(texts, ["Bonjour Bob !", "", "#rien n'est un tag ici"]);
+        assert_eq!(lines[0].2, [Tag::new("a"), Tag::new("b")]);
+        assert_eq!(lines[1].2, [Tag::new("seul")]);
+        assert!(lines[2].2.is_empty());
+    }
+
+    #[test]
+    fn a_choice_reaches_the_host_with_its_tags() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start
+[let $nom = \"Bob\"]
+-> #hostile Attaquer [$nom] #cost:3
+    Alice: Aïe.
+-> Partir
+    Alice: Au revoir. #fin
+---
+",
+        );
+        let mut vm = DialogueVm::default();
+
+        let DialogueEvent::Choices { choices } = vm
+            .start(file.dialogue.expect("the source compiles"), "start")
+            .unwrap()
+        else {
+            panic!("expected choices");
+        };
+
+        assert_eq!(
+            choices,
+            [
+                Choice {
+                    text: "Attaquer Bob".to_owned(),
+                    tags: vec![Tag::new("hostile"), Tag::with_value("cost", "3")],
+                },
+                Choice {
+                    text: "Partir".to_owned(),
+                    tags: vec![],
+                },
+            ]
+        );
+        assert_eq!(choices[0].to_string(), "Attaquer Bob");
+
+        // The tags of a choice stay with it: the line under it has its own.
+        let DialogueEvent::Say { tags, .. } = vm.resume(ResumeEvent::Select(1)).unwrap() else {
+            panic!("expected a line");
+        };
+        assert_eq!(tags, [Tag::new("fin")]);
     }
 
     /// The host is only reached when a step names a function: a dialogue that

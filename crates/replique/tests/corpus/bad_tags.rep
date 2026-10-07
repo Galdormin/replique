@@ -1,0 +1,14 @@
+:= start
+Alice: Je suis #colere aujourd'hui.
+Je suis #humeur:colere aujourd'hui.
+Alice: Il manque la valeur #humeur:
+Alice: #a:b:c Deux valeurs.
+Alice: #humeur:colere Deux fois le même. #humeur:triste
+Alice: [$nom] et #milieu et [$nom] #fin
+-> Je #doute un peu
+    Alice: Au revoir.
+-> #ton:sec Partir #ton:doux
+    Alice: Bien.
+-> #seul
+    Alice: Rien.
+---

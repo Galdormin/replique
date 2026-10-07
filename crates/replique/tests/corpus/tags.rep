@@ -1,0 +1,17 @@
+:= start
+Alice: #colere Je suis en colère #son:alice_01
+Alice: #humeur:colere Encore plus.
+#ambiance:pluie La pluie se met à tomber.
+Alice: Rien à signaler.
+Alice: #silence
+Alice: #a #b Deux devant, deux derrière. #c #d
+[let $nom = "Bob"]
+Alice: #salut Bonjour [$nom] ! #volume:0.5
+Alice: [$nom] #fin
+Agent #2: Le numéro n'est pas un tag, pas plus que C# ou le #1.
+Alice: \#colere s'écrit avec une barre oblique.
+-> #hostile Prendre le #1 #cout:3
+    Alice: Très bien. #choix:1
+-> Partir [$nom]
+    Alice: Au revoir. #choix:2
+---

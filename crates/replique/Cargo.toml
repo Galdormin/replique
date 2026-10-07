@@ -13,6 +13,7 @@ readme = "../../README.md"
 [dependencies]
 thiserror = { workspace = true }
 logos = "0.16"
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
 
 [dev-dependencies]
 insta = "1.48"

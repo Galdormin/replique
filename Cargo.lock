@@ -4512,6 +4512,7 @@ dependencies = [
  "insta",
  "logos",
  "proptest",
+ "regex",
  "thiserror 2.0.20",
 ]
 

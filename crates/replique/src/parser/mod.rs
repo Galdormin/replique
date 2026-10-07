@@ -6,8 +6,10 @@ pub mod ast;
 pub mod diagnostic;
 pub(crate) mod expr;
 mod lines;
+mod tags;
 
 pub use ast::parse;
+pub use tags::Tag;
 
 pub const END_NODE_NAME: &str = "END";
 pub const RESERVED_NODE_NAMES: &[&str] = &[END_NODE_NAME];

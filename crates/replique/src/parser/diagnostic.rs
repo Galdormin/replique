@@ -164,6 +164,11 @@ pub enum DiagnosticKind {
     DuplicateKey(String),
     /// `[break]` or `[continue]` while no `[while]` is open.
     StrayLoopControl(String),
+    /// A word that opens like a tag where none is read: `I am #angry today`,
+    /// or `#mood:` at the end of a line.
+    MisplacedTag(String),
+    /// The same tag name twice on a line: `#mood:angry Hi #mood:sad`.
+    DuplicateTag(String),
 }
 
 impl DiagnosticKind {
@@ -217,7 +222,9 @@ impl DiagnosticKind {
             | IndentedNodeStart
             | IndentedNodeEnd
             | TrailingAfterCommand
-            | DuplicateKey(_) => Severity::Warning,
+            | DuplicateKey(_)
+            | MisplacedTag(_)
+            | DuplicateTag(_) => Severity::Warning,
         }
     }
 
@@ -271,6 +278,8 @@ impl DiagnosticKind {
             ExpectedKey => "expected-key",
             DuplicateKey(_) => "duplicate-key",
             StrayLoopControl(_) => "stray-loop-control",
+            MisplacedTag(_) => "misplaced-tag",
+            DuplicateTag(_) => "duplicate-tag",
         }
     }
 }
@@ -380,6 +389,11 @@ impl fmt::Display for DiagnosticKind {
                 "key `{key}` is given more than once, only the last value is kept"
             ),
             StrayLoopControl(marker) => write!(f, "`{marker}` while not `[while]` is open"),
+            MisplacedTag(word) => write!(
+                f,
+                "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
+            ),
+            DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
         }
     }
 }

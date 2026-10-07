@@ -38,6 +38,7 @@ Caroline: Alice... You can start...
 | `[if cond]`, `[elif cond]`, `[else]` | Play a block only under a condition             |
 | `[while cond]`                       | Repeat a block, with `[break]` and `[continue]` |
 | `$dict has key`, `Alice has Angry`   | A dictionary holds a key, a subject a feature   |
+| `#name`, `#name:value`               | A tag on a line or on a choice                  |
 
 ## Variables, conditions and loops
 

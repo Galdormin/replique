@@ -33,6 +33,7 @@
 //! | `[$var]`                             | Insert a value into the line                    |
 //! | `[if cond]`, `[elif cond]`, `[else]` | Play a block only under a condition             |
 //! | `[while cond]`                       | Repeat a block, with `[break]` and `[continue]` |
+//! | `#name`, `#name:value`               | A tag on a line or on a choice                  |
 //!
 //! # Variables, conditions and loops
 //!
@@ -100,6 +101,43 @@
 //!
 //! [`RepliqueHost::has_feature`]: host::RepliqueHost::has_feature
 //!
+//! # Tags
+//!
+//! A tag is what a line says about itself rather than to the player: a mood,
+//! a sound to play, an id. It is a word of its own, `#name` or `#name:value`,
+//! written at the start or at the end of the text, and it reaches the caller
+//! apart from that text:
+//!
+//! ```rust
+//! use replique::RepliqueFile;
+//! use replique::dialogue::Tag;
+//! use replique::vm::{DialogueEvent, DialogueVm};
+//!
+//! let file = RepliqueFile::from_source(
+//!     ":= start\nAlice: #angry Give it back! #sound:alice_01\n---\n",
+//! );
+//!
+//! let mut vm = DialogueVm::default();
+//! let DialogueEvent::Say { text, tags, .. } =
+//!     vm.start(file.dialogue.unwrap(), "start").unwrap()
+//! else {
+//!     panic!("expected a line");
+//! };
+//!
+//! assert_eq!(text, "Give it back!");
+//! assert_eq!(tags, [Tag::new("angry"), Tag::with_value("sound", "alice_01")]);
+//! ```
+//!
+//! A `#` only opens a tag after a blank and before a letter, so `C#` and `#1`
+//! are text, and `\#angry` writes the word with its `#`. A tag in the middle
+//! of a line is not read: it stays in the text, with a warning.
+//!
+//! A choice takes tags the same way, `-> #hostile Attack #cost:3`, and each
+//! [`Choice`] of a [`DialogueEvent::Choices`] carries its own.
+//!
+//! [`Choice`]: vm::Choice
+//! [`DialogueEvent::Choices`]: vm::DialogueEvent::Choices
+//!
 //! # Compiling
 //!
 //! [`RepliqueFile`] is the front door: it parses and compiles a source in one
@@ -139,7 +177,7 @@
 //!
 //! loop {
 //!     event = match event {
-//!         DialogueEvent::Say { speaker, text } => {
+//!         DialogueEvent::Say { speaker, text, .. } => {
 //!             println!("{}: {}", speaker.unwrap_or_default(), text);
 //!             vm.resume(ResumeEvent::Advance).unwrap()
 //!         }

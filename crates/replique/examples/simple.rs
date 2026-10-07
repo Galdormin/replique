@@ -66,7 +66,7 @@ fn main() {
     let mut event = vm.start(dialogue, "start").unwrap();
     while !matches!(event, DialogueEvent::Finished) {
         match &event {
-            DialogueEvent::Say { speaker, text } => {
+            DialogueEvent::Say { speaker, text, .. } => {
                 match speaker {
                     Some(s) => println!("{}: {}", s, text),
                     None => println!("{}", text),

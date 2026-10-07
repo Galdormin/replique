@@ -1,0 +1,38 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Je suis #colere aujourd'hui." @2:1 "Alice: Je suis #colere aujourd'hui."
+  line - "Je suis #humeur:colere aujourd'hui." @3:1 "Je suis #humeur:colere aujourd'hui."
+  line Alice "Il manque la valeur #humeur:" @4:1 "Alice: Il manque la valeur #humeur:"
+  line Alice "#a:b:c Deux valeurs." @5:1 "Alice: #a:b:c Deux valeurs."
+  line Alice "Deux fois le même." @6:1 "Alice: #humeur:colere Deux fois le même. #humeur:triste"
+    tag #humeur:colere @6:8 "#humeur:colere"
+    tag #humeur:triste @6:43 "#humeur:triste"
+  line Alice [$nom] " et #milieu et " [$nom] @7:1 "Alice: [$nom] et #milieu et [$nom] #fin"
+    tag #fin @7:36 "#fin"
+  choice-group @8:1 "-> Je #doute un peu\n    Alice: Au revoir.\n-> #ton:sec Partir #ton:doux\n    Alice: Bien.\n-> #seul\n    Alice: Rien."
+    choice "Je #doute un peu" @8:1 "-> Je #doute un peu\n    Alice: Au revoir."
+      line Alice "Au revoir." @9:5 "Alice: Au revoir."
+    choice "Partir" @10:1 "-> #ton:sec Partir #ton:doux\n    Alice: Bien."
+      tag #ton:sec @10:4 "#ton:sec"
+      tag #ton:doux @10:20 "#ton:doux"
+      line Alice "Bien." @11:5 "Alice: Bien."
+    choice (empty) @12:1 "-> #seul\n    Alice: Rien."
+      tag #seul @12:4 "#seul"
+      line Alice "Rien." @13:5 "Alice: Rien."
+
+== diagnostics ==
+warning misplaced-tag @2:16 "#colere"
+warning misplaced-tag @3:9 "#humeur:colere"
+warning misplaced-tag @4:28 "#humeur:"
+warning misplaced-tag @5:8 "#a:b:c"
+warning duplicate-tag @6:43 "#humeur:triste"
+  label first given here @6:8 "#humeur:colere"
+warning misplaced-tag @7:18 "#milieu"
+warning misplaced-tag @8:7 "#doute"
+warning duplicate-tag @10:20 "#ton:doux"
+  label first given here @10:4 "#ton:sec"
+error empty-choice-text @12:1 "-> #seul"

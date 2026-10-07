@@ -56,7 +56,7 @@ impl DialogueRunner {
 /// Hands the event the VM stopped on to whoever is listening.
 fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
     match event {
-        DialogueEvent::Say { speaker, text } => {
+        DialogueEvent::Say { speaker, text, .. } => {
             world.write_message(DialogueLine {
                 token,
                 speaker,
@@ -81,7 +81,10 @@ fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
                 choices: choices
                     .into_iter()
                     .enumerate()
-                    .map(|(index, text)| DialogueChoice { index, text })
+                    .map(|(index, choice)| DialogueChoice {
+                        index,
+                        text: choice.text,
+                    })
                     .collect(),
             });
         }

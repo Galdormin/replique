@@ -117,13 +117,18 @@ fn build_block(
     let mut current_id = last_id;
     for stmt in body.into_iter().rev() {
         current_id = match stmt.kind {
-            StmtKind::Say { speaker, text } => builder.push(StepKind::Say {
+            StmtKind::Say {
+                speaker,
+                text,
+                tags,
+            } => builder.push(StepKind::Say {
                 line: TextLine {
                     speaker: speaker.map(|s| s.into_inner()),
                     text: text
                         .into_iter()
                         .map(|p| p.value.try_into())
                         .collect::<Result<_, _>>()?,
+                    tags: tags.into_iter().map(|t| t.into_inner()).collect(),
                 },
                 next: current_id,
             }),
@@ -188,6 +193,7 @@ fn build_block(
                                 .into_iter()
                                 .map(|p| p.value.try_into())
                                 .collect::<Result<_, _>>()?,
+                            tags: c.tags.into_iter().map(|t| t.into_inner()).collect(),
                             target,
                         })
                     })
