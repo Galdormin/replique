@@ -43,11 +43,12 @@
 //! assert_eq!(schema.commands[0].arity, Arity::AtLeast(1));
 //! ```
 
-use std::{collections::BTreeMap, fmt, str::FromStr};
+use std::{collections::BTreeMap, str::FromStr};
 
 use serde::Deserialize;
 use thiserror::Error;
 
+pub use crate::builtins::Arity;
 use crate::parser::{
     Spanned, Tag,
     ast::{NodeDecl, StmtKind},
@@ -84,48 +85,18 @@ pub struct TagSchema {
     pub scope: TagScope,
 }
 
-/// How many arguments a function or a command takes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arity {
-    /// `"2"`
-    Exact(u8),
-    /// `"1+"`
-    AtLeast(u8),
-    /// `"1-2"`, both ends included.
-    Range(u8, u8),
-}
-
-impl Arity {
-    pub fn accepts(&self, got: usize) -> bool {
-        match *self {
-            Arity::Exact(n) => got == usize::from(n),
-            Arity::AtLeast(n) => got >= usize::from(n),
-            Arity::Range(low, high) => (usize::from(low)..=usize::from(high)).contains(&got),
-        }
-    }
-}
-
-/// The arity as it is written in a schema.
-impl fmt::Display for Arity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Arity::Exact(n) => write!(f, "{n}"),
-            Arity::AtLeast(n) => write!(f, "{n}+"),
-            Arity::Range(low, high) => write!(f, "{low}-{high}"),
-        }
-    }
-}
-
 /// An arity that reads as none of `"2"`, `"1+"` and `"1-2"`.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("expected a count such as `2`, `1+` or `1-2`")]
 pub struct InvalidArity;
 
+/// Reads an arity the way a schema writes it: `"2"` for exactly two
+/// arguments, `"1+"` for one or more, `"1-2"` for one or two.
 impl FromStr for Arity {
     type Err = InvalidArity;
 
     fn from_str(s: &str) -> Result<Self, InvalidArity> {
-        let count = |text: &str| text.trim().parse::<u8>().map_err(|_| InvalidArity);
+        let count = |text: &str| text.trim().parse::<usize>().map_err(|_| InvalidArity);
         let s = s.trim();
 
         if let Some(low) = s.strip_suffix('+') {
@@ -204,7 +175,7 @@ struct RawTag {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RawArity {
-    Count(u8),
+    Count(usize),
     Text(String),
 }
 
@@ -252,9 +223,6 @@ impl RepliqueSchema {
     }
 
     /// Validate a [`NodeDecl`] based on the data of the Schema
-    ///
-    /// A part the schema leaves empty is not checked: without `speakers`
-    /// anyone can speak, without `[tags]` any tag can be written.
     pub fn validate(&self, node: &NodeDecl, diags: &mut Diagnostics) {
         for stmt in node.all_statements() {
             match &stmt.kind {
@@ -268,6 +236,9 @@ impl RepliqueSchema {
                     for choice in choices {
                         self.validate_tags(&choice.tags, None, diags);
                     }
+                }
+                StmtKind::Command { name, args, .. } => {
+                    self.validate_command(name, args.len(), diags);
                 }
                 _ => {}
             }
@@ -310,6 +281,30 @@ impl RepliqueSchema {
                     },
                 );
             }
+        }
+    }
+
+    fn validate_command(&self, name: &Spanned<String>, len: usize, diags: &mut Diagnostics) {
+        if self.commands.is_empty() {
+            return;
+        }
+
+        if let Some(call) = self.commands.iter().find(|c| c.name == name.value) {
+            if !call.arity.accepts(len) {
+                diags.push(
+                    name.span,
+                    DiagnosticKind::WrongArity {
+                        call: name.value.clone(),
+                        got: len,
+                        expected: call.arity,
+                    },
+                );
+            }
+        } else {
+            diags.push(
+                name.span,
+                DiagnosticKind::UnknownCommand(name.value.clone()),
+            );
         }
     }
 }
@@ -493,17 +488,9 @@ change_mood = "2"
     #[test]
     fn error_on_what_is_not_an_arity() {
         for text in [
-            "", "+", "-", "two", "1.5", "-1", "1-", "-2", "2-1", "1+2", "1++", "1-2-3", "256",
-            "1 2",
+            "", "+", "-", "two", "1.5", "-1", "1-", "-2", "2-1", "1+2", "1++", "1-2-3", "1 2",
         ] {
             assert_eq!(text.parse::<Arity>(), Err(InvalidArity), "{text:?}");
-        }
-    }
-
-    #[test]
-    fn an_arity_is_written_back_the_way_it_was_read() {
-        for text in ["2", "1+", "1-2"] {
-            assert_eq!(text.parse::<Arity>().unwrap().to_string(), text);
         }
     }
 
@@ -546,7 +533,7 @@ change_mood = "2"
 
     #[test]
     fn error_on_an_arity_of_another_type() {
-        for value in ["true", "1.5", "-1", "[1, 2]", "{ min = 1 }", "300"] {
+        for value in ["true", "1.5", "-1", "[1, 2]", "{ min = 1 }"] {
             let src = format!("[commands]\nadd_scene = {value}\n");
 
             assert!(matches!(error(&src), SchemaError::Toml(_)), "{value}");
@@ -870,6 +857,148 @@ Robin: #hapy Salut #delay
                 "tag `#sad` is only for the lines of `Fanny`",
                 "tag `#nope` is unknown"
             ]
+        );
+    }
+
+    const COMMANDS: &str = r#"
+[commands]
+add_scene = "1+"
+change_mood = "2"
+fade = "0-1"
+wave = "0"
+"#;
+
+    // The span of a command name takes its `(` along, as the lexer reads it.
+
+    #[test]
+    fn a_command_called_the_way_the_schema_says_is_valid() {
+        let src = ":= start
+>> add_scene(Alice)
+>> add_scene(Alice, Bob, Caroline)
+>> change_mood(Alice, happy)
+>> fade()
+>> fade(0.5)
+>> wave()
+>> await wave()
+---
+";
+
+        assert!(validated(COMMANDS, src).is_empty());
+    }
+
+    #[test]
+    fn warning_on_a_command_the_schema_does_not_name() {
+        let src = ":= start\n>> add_scen(Alice)\n>> await Wave()\n>> wave()\n---\n";
+
+        assert_eq!(
+            validated(COMMANDS, src),
+            [
+                ("unknown-command", "add_scen(".to_owned()),
+                ("unknown-command", "Wave(".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn warning_on_a_command_given_the_wrong_number_of_arguments() {
+        let src = ":= start
+>> add_scene()
+>> change_mood(Alice)
+>> change_mood(Alice, happy, 2)
+>> fade(1, 2)
+>> await wave(now)
+---
+";
+
+        assert_eq!(
+            validated(COMMANDS, src),
+            [
+                ("wrong-arity", "add_scene(".to_owned()),
+                ("wrong-arity", "change_mood(".to_owned()),
+                ("wrong-arity", "change_mood(".to_owned()),
+                ("wrong-arity", "fade(".to_owned()),
+                ("wrong-arity", "wave(".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_arity_warning_says_what_was_expected_and_what_was_given() {
+        let src =
+            ":= start\n>> add_scene()\n>> change_mood(Alice)\n>> fade(1, 2)\n>> wave(1)\n---\n";
+        let mut parsed = crate::parser::parse(src);
+
+        parsed.validate(&schema(COMMANDS));
+
+        let messages: Vec<_> = parsed
+            .diagnostics
+            .iter()
+            .map(|d| d.kind.to_string())
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "`add_scene` expects at least 1 argument, got 0",
+                "`change_mood` expects 2 arguments, got 1",
+                "`fade` expects 0 to 1 arguments, got 2",
+                "`wave` expects 0 arguments, got 1",
+            ]
+        );
+        assert_eq!(parsed.diagnostics.errors(), 0);
+    }
+
+    /// An argument counts as one whatever it is made of.
+    #[test]
+    fn an_argument_is_counted_once_whatever_it_holds() {
+        let src = ":= start
+[let $a = 1]
+>> change_mood({name: Alice, mood: happy}, max($a, 2) + 1)
+---
+";
+
+        assert!(validated(COMMANDS, src).is_empty());
+    }
+
+    #[test]
+    fn commands_are_checked_in_every_block() {
+        let src = ":= start
+[if true]
+    [while false]
+        -> un
+            >> nope()
+        -> deux
+            >> wave(1)
+---
+";
+
+        assert_eq!(
+            validated(COMMANDS, src),
+            [
+                ("unknown-command", "nope(".to_owned()),
+                ("wrong-arity", "wave(".to_owned()),
+            ]
+        );
+    }
+
+    /// A schema without `[commands]` says nothing about commands: it does not
+    /// make every one of them unknown.
+    #[test]
+    fn a_schema_without_commands_checks_no_command() {
+        let src = ":= start\n>> anything(1, 2, 3)\n---\n";
+
+        assert!(validated("", src).is_empty());
+        assert!(validated("speakers = [\"Robin\"]\n[commands]\n", src).is_empty());
+    }
+
+    /// Functions have their own section: a command is not looked up there.
+    #[test]
+    fn a_function_of_the_schema_is_not_a_command() {
+        let schema = "[functions]\nget_flower = \"1\"\n[commands]\nwave = \"0\"\n";
+        let src = ":= start\n>> get_flower(rose)\n---\n";
+
+        assert_eq!(
+            validated(schema, src),
+            [("unknown-command", "get_flower(".to_owned())]
         );
     }
 }

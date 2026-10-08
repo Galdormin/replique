@@ -37,7 +37,10 @@ use std::{
     slice::Iter,
 };
 
-use crate::parser::{LineIndex, Span};
+use crate::{
+    builtins::Arity,
+    parser::{LineIndex, Span},
+};
 
 /// How bad a diagnostic is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -171,8 +174,16 @@ pub enum DiagnosticKind {
     DuplicateTag(String),
     /// The speaker of a line is unknown in the schema.
     UnknownSpeaker(String),
-    /// A tag the schema does not name.
+    /// The tag is unknown to the schema.
     UnknownTag(String),
+    /// The command is unknown to the schema.
+    UnknownCommand(String),
+    /// The command/function has a wrong arity.
+    WrongArity {
+        call: String,
+        got: usize,
+        expected: Arity,
+    },
     /// A tag the schema keeps for some speakers, on a line of someone else,
     /// on a line without a speaker or on a choice.
     TagOutOfScope { tag: String, scope: Vec<String> },
@@ -234,7 +245,9 @@ impl DiagnosticKind {
             | DuplicateTag(_)
             | UnknownSpeaker(_)
             | UnknownTag(_)
-            | TagOutOfScope { .. } => Severity::Warning,
+            | UnknownCommand(_)
+            | TagOutOfScope { .. }
+            | WrongArity { .. } => Severity::Warning,
         }
     }
 
@@ -292,6 +305,8 @@ impl DiagnosticKind {
             DuplicateTag(_) => "duplicate-tag",
             UnknownSpeaker(_) => "unknown-speaker",
             UnknownTag(_) => "unknown-tag",
+            UnknownCommand(_) => "unknown-command",
+            WrongArity { .. } => "wrong-arity",
             TagOutOfScope { .. } => "tag-out-of-scope",
         }
     }
@@ -407,8 +422,9 @@ impl fmt::Display for DiagnosticKind {
                 "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
-            UnknownSpeaker(speaker) => write!(f, "speaker {speaker} is unknown"),
+            UnknownSpeaker(speaker) => write!(f, "speaker `{speaker}` is unknown"),
             UnknownTag(tag) => write!(f, "tag `#{tag}` is unknown"),
+            UnknownCommand(command) => write!(f, "command `{command}` is unknown"),
             TagOutOfScope { tag, scope } if scope.is_empty() => {
                 write!(f, "tag `#{tag}` is scoped to no speaker")
             }
@@ -421,6 +437,11 @@ impl fmt::Display for DiagnosticKind {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            WrongArity {
+                call,
+                got,
+                expected,
+            } => write!(f, "`{call}` expects {expected}, got {got}"),
         }
     }
 }
