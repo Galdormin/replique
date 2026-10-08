@@ -49,10 +49,13 @@ use serde::Deserialize;
 use thiserror::Error;
 
 pub use crate::builtins::Arity;
-use crate::parser::{
-    Spanned, Tag,
-    ast::{NodeDecl, StmtKind},
-    diagnostic::{DiagnosticKind, Diagnostics},
+use crate::{
+    builtins::{self, lookup},
+    parser::{
+        Spanned, Tag,
+        ast::{NodeDecl, StmtKind},
+        diagnostic::{DiagnosticKind, Diagnostics},
+    },
 };
 
 use super::ast::is_valid_ident;
@@ -148,6 +151,9 @@ pub enum SchemaError {
     /// A tag scoped to someone who is not in `speakers`.
     #[error("tag `{tag}` is scoped to `{speaker}`, who is not one of the speakers")]
     UnknownSpeakerInScope { tag: String, speaker: String },
+    /// A function have the same name as a builtin
+    #[error("function `{0} is already declared as a builtin`")]
+    AlreadyBuiltin(String),
 }
 
 /// The file as it is written. The names are the keys of the tables there,
@@ -243,6 +249,35 @@ impl RepliqueSchema {
                 _ => {}
             }
         }
+
+        if self.functions.is_empty() {
+            return;
+        }
+
+        for call in node.all_calls() {
+            // We ignore builtins functions
+            if builtins::lookup(&call.name.value).is_some() {
+                continue;
+            }
+
+            if let Some(call_schema) = self.functions.iter().find(|f| f.name == call.name.value) {
+                if !call_schema.arity.accepts(call.args) {
+                    diags.push(
+                        call.span,
+                        DiagnosticKind::WrongArity {
+                            call: call.name.value.clone(),
+                            got: call.args,
+                            expected: call_schema.arity,
+                        },
+                    );
+                }
+            } else {
+                diags.push(
+                    call.name.span,
+                    DiagnosticKind::UnknownFunction(call.name.value.clone()),
+                );
+            }
+        }
     }
 
     fn validate_speaker(&self, speaker: &Spanned<String>, diags: &mut Diagnostics) {
@@ -319,7 +354,11 @@ impl FromStr for RepliqueSchema {
 
 fn check_name(section: &'static str, name: &str) -> Result<(), SchemaError> {
     if is_valid_ident(name) {
-        Ok(())
+        if section == "functions" && lookup(name).is_some() {
+            Err(SchemaError::AlreadyBuiltin(name.to_string()))
+        } else {
+            Ok(())
+        }
     } else {
         Err(SchemaError::InvalidName {
             section,
@@ -868,8 +907,6 @@ fade = "0-1"
 wave = "0"
 "#;
 
-    // The span of a command name takes its `(` along, as the lexer reads it.
-
     #[test]
     fn a_command_called_the_way_the_schema_says_is_valid() {
         let src = ":= start
@@ -1000,5 +1037,47 @@ wave = "0"
             validated(schema, src),
             [("unknown-command", "get_flower(".to_owned())]
         );
+    }
+
+    const FUNCTIONS: &str = "[functions]\ngold = \"0\"\nget_flower = \"1-2\"\n";
+
+    /// A builtin is known to every schema, and is not looked up in it.
+    #[test]
+    fn a_function_called_the_way_the_schema_says_is_valid() {
+        let src = ":= start
+[let $n = gold() + len(get_flower(rose))]
+Alice: [upper(get_flower(rose, red))] for [gold()] coins.
+---
+";
+
+        assert!(validated(FUNCTIONS, src).is_empty());
+    }
+
+    #[test]
+    fn warning_on_a_function_unknown_or_given_the_wrong_number_of_arguments() {
+        let src = ":= start
+[if gld() > 1]
+    Alice: [get_flower(gold(1))] and [get_flower(a, b, c)]
+---
+";
+
+        assert_eq!(
+            validated(FUNCTIONS, src),
+            [
+                ("unknown-function", "gld(".to_owned()),
+                ("wrong-arity", "gold(1)".to_owned()),
+                ("wrong-arity", "get_flower(a, b, c)".to_owned()),
+            ]
+        );
+    }
+
+    /// A schema without `[functions]` says nothing about functions: it does
+    /// not make every one of them unknown.
+    #[test]
+    fn a_schema_without_functions_checks_no_function() {
+        let src = ":= start\nAlice: [anything(1, 2, 3)]\n---\n";
+
+        assert!(validated("", src).is_empty());
+        assert!(validated("[commands]\nwave = \"0\"\n[functions]\n", src).is_empty());
     }
 }

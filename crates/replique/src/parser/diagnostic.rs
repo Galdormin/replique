@@ -178,6 +178,14 @@ pub enum DiagnosticKind {
     UnknownTag(String),
     /// The command is unknown to the schema.
     UnknownCommand(String),
+    /// The function is unknown to the schema.
+    UnknownFunction(String),
+    /// A builtin function called with a wrong number of arguments.
+    BuiltinArity {
+        name: String,
+        got: usize,
+        expected: Arity,
+    },
     /// The command/function has a wrong arity.
     WrongArity {
         call: String,
@@ -232,7 +240,8 @@ impl DiagnosticKind {
             | UnclosedDict
             | ExpectedColon
             | ExpectedKey
-            | StrayLoopControl(_) => Severity::Error,
+            | StrayLoopControl(_)
+            | BuiltinArity { .. } => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -246,6 +255,7 @@ impl DiagnosticKind {
             | UnknownSpeaker(_)
             | UnknownTag(_)
             | UnknownCommand(_)
+            | UnknownFunction(_)
             | TagOutOfScope { .. }
             | WrongArity { .. } => Severity::Warning,
         }
@@ -301,11 +311,13 @@ impl DiagnosticKind {
             ExpectedKey => "expected-key",
             DuplicateKey(_) => "duplicate-key",
             StrayLoopControl(_) => "stray-loop-control",
+            BuiltinArity { .. } => "builtin-arity",
             MisplacedTag(_) => "misplaced-tag",
             DuplicateTag(_) => "duplicate-tag",
             UnknownSpeaker(_) => "unknown-speaker",
             UnknownTag(_) => "unknown-tag",
             UnknownCommand(_) => "unknown-command",
+            UnknownFunction(_) => "unknown-function",
             WrongArity { .. } => "wrong-arity",
             TagOutOfScope { .. } => "tag-out-of-scope",
         }
@@ -422,9 +434,15 @@ impl fmt::Display for DiagnosticKind {
                 "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
+            BuiltinArity {
+                name,
+                got,
+                expected,
+            } => write!(f, "builtin `{name}` expects {expected}, got {got}"),
             UnknownSpeaker(speaker) => write!(f, "speaker `{speaker}` is unknown"),
             UnknownTag(tag) => write!(f, "tag `#{tag}` is unknown"),
             UnknownCommand(command) => write!(f, "command `{command}` is unknown"),
+            UnknownFunction(function) => write!(f, "function `{function}` is unknown"),
             TagOutOfScope { tag, scope } if scope.is_empty() => {
                 write!(f, "tag `#{tag}` is scoped to no speaker")
             }
