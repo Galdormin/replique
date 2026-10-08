@@ -81,6 +81,7 @@ Merchant: [$player.name], you are leaving with [$gold] coins.
 
 | Replique | Bevy |
 | -------- | ---- |
+| 0.2      | 0.19 |
 | 0.1      | 0.19 |
 
 ## License
