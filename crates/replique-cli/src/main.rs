@@ -31,6 +31,10 @@ struct CheckArgs {
     /// Files or folders to check
     paths: Vec<PathBuf>,
 
+    /// RepliqueSchema to use
+    #[arg(long)]
+    schema: Option<PathBuf>,
+
     /// Display format
     #[arg(short, long, value_enum, default_value = "pretty")]
     format: Format,

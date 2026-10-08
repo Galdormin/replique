@@ -2,16 +2,19 @@
 
 use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
-use crate::parser::{
-    AWAIT_KEYWORD, END_NODE_NAME, Parsed, RESERVED_COMMAND_NAMES, RESERVED_NODE_NAMES, Span,
-    Spanned,
-    diagnostic::{
-        DiagnosticKind::{self, StrayLoopControl},
-        Diagnostics, Label,
+use crate::{
+    builtins::lookup,
+    parser::{
+        AWAIT_KEYWORD, END_NODE_NAME, Parsed, RESERVED_COMMAND_NAMES, RESERVED_NODE_NAMES, Span,
+        Spanned,
+        diagnostic::{
+            DiagnosticKind::{self, StrayLoopControl},
+            Diagnostics, Label,
+        },
+        expr::{Expr, ValueType, pratt},
+        lines::{LineKind, RawLine, split_lines},
+        tags::{Tag, split_tags, tag_starts, unescape},
     },
-    expr::{Expr, ValueType, pratt},
-    lines::{LineKind, RawLine, split_lines},
-    tags::{Tag, split_tags, tag_starts, unescape},
 };
 
 /// Represents a dialogue node in the syntax tree
@@ -23,6 +26,66 @@ pub struct NodeDecl {
     pub body: Vec<Stmt>,
     /// Span of the full node. from `:= start` to `---`
     pub full_span: Span,
+}
+
+impl NodeDecl {
+    /// Every statement of the node. The blocks are flattened.
+    pub fn all_statements(&self) -> Vec<&Stmt> {
+        let mut all = vec![];
+        flatten_stmts(&self.body, &mut all);
+        all
+    }
+
+    /// Every call to a function written in the node, in the order they are
+    /// written, a call coming before the ones in its arguments.
+    ///
+    /// Functions live in expressions, so this looks wherever one can be:
+    /// the text of a line or of a choice, the arguments of a command, the
+    /// value of a `[let]`, and the condition of an `[if]` or of a `[while]`.
+    /// A `>>` command is not a function, and is not listed.
+    pub fn all_calls(&self) -> Vec<Call<'_>> {
+        let mut calls = vec![];
+
+        for stmt in self.all_statements() {
+            match &stmt.kind {
+                StmtKind::Say { text, .. } => text_calls(text, &mut calls),
+                StmtKind::Choice { choices } => {
+                    for choice in choices {
+                        text_calls(&choice.text, &mut calls);
+                    }
+                }
+                StmtKind::Command { args, .. } => {
+                    for arg in args {
+                        expr_calls(&arg.value, arg.span, &mut calls);
+                    }
+                }
+                StmtKind::Set { value, .. } => expr_calls(&value.value, value.span, &mut calls),
+                StmtKind::If { branches, .. } => {
+                    for branch in branches {
+                        let condition = &branch.condition;
+                        expr_calls(&condition.value, condition.span, &mut calls);
+                    }
+                }
+                StmtKind::While { condition, .. } => {
+                    expr_calls(&condition.value, condition.span, &mut calls);
+                }
+                StmtKind::Jump(_) | StmtKind::Break | StmtKind::Continue => {}
+            }
+        }
+
+        calls
+    }
+}
+
+/// A call to a function, as [`NodeDecl::all_calls`] finds it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Call<'a> {
+    /// Name of the function. Its span takes the `(` along.
+    pub name: &'a Spanned<String>,
+    /// How many arguments the call gives.
+    pub args: usize,
+    /// The whole call, from its name to its `)`.
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -738,7 +801,8 @@ impl<'a> Parser<'a> {
         // Detect jump to uknown node
         let names = nodes.iter().map(|n| &n.name.value).collect::<Vec<_>>();
         for node in nodes {
-            self.validate_jumps(&node.body, &names);
+            self.validate_jumps(node, &names);
+            self.validate_builtins(node);
         }
 
         // Detect reserved node names
@@ -780,24 +844,40 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Walks choice bodies too: a `=>` most often sits inside an option.
-    fn validate_jumps(&mut self, stmts: &[Stmt], names: &[&String]) {
-        for stmt in stmts {
-            match &stmt.kind {
-                StmtKind::Jump(name)
-                    if !names.contains(&&name.value) && name.value != END_NODE_NAME =>
-                {
-                    self.diags.push(
-                        stmt.span,
-                        DiagnosticKind::JumpToUnknownNode(name.value.clone()),
-                    );
-                }
-                StmtKind::Choice { choices } => {
-                    for choice in choices {
-                        self.validate_jumps(&choice.body, names);
-                    }
-                }
-                _ => (),
+    /// Reports every call to a builtin that does not give it the number of
+    /// arguments it takes.
+    ///
+    /// Only the builtins are checked here: they are the functions every
+    /// dialogue has, and the host cannot answer in their place. What the game
+    /// adds is the business of its schema.
+    fn validate_builtins(&mut self, node: &NodeDecl) {
+        for call in node.all_calls() {
+            if let Some(builtin) = lookup(&call.name.value)
+                && !builtin.arity.accepts(call.args)
+            {
+                self.diags.push(
+                    call.span,
+                    DiagnosticKind::BuiltinArity {
+                        name: call.name.value.clone(),
+                        got: call.args,
+                        expected: builtin.arity,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Reports every `=>` of `node` that leads nowhere.
+    fn validate_jumps(&mut self, node: &NodeDecl, names: &[&String]) {
+        for stmt in node.all_statements() {
+            if let StmtKind::Jump(name) = &stmt.kind
+                && !names.contains(&&name.value)
+                && name.value != END_NODE_NAME
+            {
+                self.diags.push(
+                    stmt.span,
+                    DiagnosticKind::JumpToUnknownNode(name.value.clone()),
+                );
             }
         }
     }
@@ -905,6 +985,80 @@ pub(super) fn is_valid_ident(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Pushes the calls of the inline expressions of `text` onto `calls`.
+fn text_calls<'a>(text: &'a [Spanned<TextPart>], calls: &mut Vec<Call<'a>>) {
+    for part in text {
+        if let TextPart::Expression(expr) = &part.value {
+            expr_calls(expr, part.span, calls);
+        }
+    }
+}
+
+/// Pushes every call `expr` holds onto `calls`, itself included when it is
+/// one. `span` is the span of `expr`.
+fn expr_calls<'a>(expr: &'a Expr, span: Span, calls: &mut Vec<Call<'a>>) {
+    let mut inner = |expr: &'a Spanned<Expr>| expr_calls(&expr.value, expr.span, calls);
+
+    match expr {
+        Expr::Function { name, args } => {
+            calls.push(Call {
+                name,
+                args: args.len(),
+                span,
+            });
+            for arg in args {
+                expr_calls(&arg.value, arg.span, calls);
+            }
+        }
+        Expr::Attr { base, .. } => inner(base),
+        Expr::LitteralDict(entries) => {
+            for (_, value) in entries {
+                expr_calls(&value.value, value.span, calls);
+            }
+        }
+        Expr::Unary { rhs, .. } => inner(rhs),
+        Expr::Binary { lhs, rhs, .. } => {
+            expr_calls(&lhs.value, lhs.span, calls);
+            expr_calls(&rhs.value, rhs.span, calls);
+        }
+        Expr::Var { .. } | Expr::Litteral { .. } | Expr::Error => {}
+    }
+}
+
+/// Pushes every statement of `stmts` onto `all`, each one right before the
+/// statements of the blocks it opens.
+fn flatten_stmts<'a>(stmts: &'a [Stmt], all: &mut Vec<&'a Stmt>) {
+    for stmt in stmts {
+        all.push(stmt);
+
+        match &stmt.kind {
+            StmtKind::Choice { choices } => {
+                for choice in choices {
+                    flatten_stmts(&choice.body, all);
+                }
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                for branch in branches {
+                    flatten_stmts(&branch.body, all);
+                }
+                if let Some(body) = otherwise {
+                    flatten_stmts(body, all);
+                }
+            }
+            StmtKind::While { body, .. } => flatten_stmts(body, all),
+            StmtKind::Say { .. }
+            | StmtKind::Jump(_)
+            | StmtKind::Command { .. }
+            | StmtKind::Set { .. }
+            | StmtKind::Break
+            | StmtKind::Continue => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1923,5 +2077,281 @@ mod tests {
         let src = ":= start\n-> Prendre le #1\n    Alice: ok\n-> Rester\n    Alice: ok\n---\n";
 
         assert!(codes(src).is_empty());
+    }
+
+    /// What each statement of the only node of `src` is, flattened.
+    fn flattened(src: &str) -> Vec<String> {
+        parse(src).nodes[0]
+            .all_statements()
+            .into_iter()
+            .map(|stmt| match &stmt.kind {
+                StmtKind::Say { speaker, .. } => {
+                    format!("say {}", speaker.as_ref().map_or("-", |s| &s.value))
+                }
+                StmtKind::Choice { .. } => "choice".to_owned(),
+                StmtKind::Jump(name) => format!("jump {}", name.value),
+                StmtKind::Command { name, .. } => format!("command {}", name.value),
+                StmtKind::Set { name, .. } => format!("set {}", name.value),
+                StmtKind::If { .. } => "if".to_owned(),
+                StmtKind::While { .. } => "while".to_owned(),
+                StmtKind::Break => "break".to_owned(),
+                StmtKind::Continue => "continue".to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn all_statements_of_a_flat_node_are_its_body() {
+        assert_eq!(
+            flattened(":= start\nAlice: un\n>> wave()\n[let $n = 1]\n=> END\n---\n"),
+            ["say Alice", "command wave", "set n", "jump END"]
+        );
+    }
+
+    #[test]
+    fn all_statements_open_every_kind_of_block() {
+        let src = ":= start
+[let $n = 0]
+[if $n > 0]
+    A: if
+[elif $n < 0]
+    B: elif
+[else]
+    C: else
+[while $n < 2]
+    D: while
+    [break]
+-> un
+    E: choice
+-> deux
+    F: choice
+G: end
+---
+";
+
+        assert_eq!(
+            flattened(src),
+            [
+                "set n", "if", "say A", "say B", "say C", "while", "say D", "break", "choice",
+                "say E", "say F", "say G",
+            ]
+        );
+    }
+
+    #[test]
+    fn all_statements_go_as_deep_as_the_blocks_do() {
+        let src = ":= start
+[let $n = 0]
+[while $n < 2]
+    [if $n == 0]
+        -> un
+            [while true]
+                A: deep
+                [continue]
+        -> deux
+            B: deep
+---
+";
+
+        assert_eq!(
+            flattened(src),
+            [
+                "set n", "while", "if", "choice", "while", "say A", "continue", "say B",
+            ]
+        );
+    }
+
+    /// Name and number of arguments of every call of the only node of `src`.
+    fn calls(src: &str) -> Vec<(String, usize)> {
+        parse(src).nodes[0]
+            .all_calls()
+            .into_iter()
+            .map(|call| (call.name.value.clone(), call.args))
+            .collect()
+    }
+
+    #[test]
+    fn all_calls_look_wherever_an_expression_can_be() {
+        let src = ":= start
+[let $n = in_let()]
+Alice: Hi [in_line(1)] and [in_line_again(1, 2)]
+>> command(in_command(1, 2, 3))
+[if in_if()]
+    Alice: ok
+[elif in_elif()]
+    Alice: ok
+[while in_while()]
+    Alice: ok
+-> Take [in_choice()]
+    Alice: [in_choice_body()]
+-> Leave
+    Alice: ok
+---
+";
+
+        assert_eq!(
+            calls(src),
+            [
+                ("in_let".to_owned(), 0),
+                ("in_line".to_owned(), 1),
+                ("in_line_again".to_owned(), 2),
+                ("in_command".to_owned(), 3),
+                ("in_if".to_owned(), 0),
+                ("in_elif".to_owned(), 0),
+                ("in_while".to_owned(), 0),
+                ("in_choice".to_owned(), 0),
+                ("in_choice_body".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn all_calls_go_through_every_kind_of_expression() {
+        let src = ":= start
+[let $n = outer(inner(1), 2) + not_called]
+[let $d = {a: in_dict(), b: {c: nested_dict(1)}}]
+[let $x = in_attr().hp]
+[let $y = not in_unary() and (in_paren(1) == -in_neg())]
+[let $z = $n has in_has()]
+---
+";
+
+        assert_eq!(
+            calls(src),
+            [
+                ("outer".to_owned(), 2),
+                ("inner".to_owned(), 1),
+                ("in_dict".to_owned(), 0),
+                ("nested_dict".to_owned(), 1),
+                ("in_attr".to_owned(), 0),
+                ("in_unary".to_owned(), 0),
+                ("in_paren".to_owned(), 1),
+                ("in_neg".to_owned(), 0),
+                ("in_has".to_owned(), 0),
+            ]
+        );
+    }
+
+    /// A `>>` command is not a function, even when it shares its name.
+    #[test]
+    fn a_command_is_not_a_call() {
+        assert!(calls(":= start\n>> upper()\n>> await wave(1, 2)\n---\n").is_empty());
+    }
+
+    #[test]
+    fn the_span_of_a_call_covers_it_whole() {
+        let src = ":= start\n[let $n = 1 + outer(inner(1), 2)]\nAlice: [ spaced( 1 ) ]\n---\n";
+        let parsed = parse(src);
+
+        let spans: Vec<_> = parsed.nodes[0]
+            .all_calls()
+            .into_iter()
+            .map(|call| &src[call.span.start..call.span.end])
+            .collect();
+        assert_eq!(spans, ["outer(inner(1), 2)", "inner(1)", " spaced( 1 ) "]);
+    }
+
+    /// Codes of `src`, and the text each diagnostic points at.
+    fn reported(src: &str) -> Vec<(&'static str, String)> {
+        parse(src)
+            .diagnostics
+            .iter()
+            .map(|d| (d.kind.code(), src[d.span.start..d.span.end].to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn a_builtin_given_the_arguments_it_takes_is_fine() {
+        let src = ":= start
+[let $n = max(1, 2, 3)]
+Alice: [upper(\"a\")] has [len(\"abc\")] and [min(1, abs(-2))]
+---
+";
+
+        assert!(codes(src).is_empty(), "{:?}", codes(src));
+    }
+
+    #[test]
+    fn error_on_a_builtin_given_the_wrong_number_of_arguments() {
+        let src = ":= start
+[let $n = max(1)]
+Alice: [upper()] and [len(\"a\", \"b\")]
+---
+";
+
+        assert_eq!(
+            reported(src),
+            [
+                ("builtin-arity", "max(1)".to_owned()),
+                ("builtin-arity", "upper()".to_owned()),
+                ("builtin-arity", "len(\"a\", \"b\")".to_owned()),
+            ]
+        );
+        assert_eq!(parse(src).diagnostics.errors(), 3);
+    }
+
+    #[test]
+    fn a_builtin_is_checked_wherever_it_is_called() {
+        let src = ":= start
+[if upper() == \"A\"]
+    >> play(lower())
+[while len() > 0]
+    -> Take [abs()]
+        Alice: [upper(capitalize())]
+    -> Leave
+        Alice: ok
+---
+";
+
+        let names: Vec<_> = parse(src)
+            .diagnostics
+            .iter()
+            .filter_map(|d| match &d.kind {
+                DiagnosticKind::BuiltinArity { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["upper", "lower", "len", "abs", "capitalize"]);
+    }
+
+    /// What the game adds is not known here: its arity is the business of
+    /// the schema.
+    #[test]
+    fn a_function_that_is_not_a_builtin_is_not_checked() {
+        let src = ":= start\nAlice: [gold()] and [gold(1, 2, 3)]\n---\n";
+
+        assert!(codes(src).is_empty());
+    }
+
+    #[test]
+    fn a_command_named_like_a_builtin_is_not_checked() {
+        assert!(codes(":= start\n>> upper()\n---\n").is_empty());
+    }
+
+    #[test]
+    fn the_builtin_error_says_what_was_expected_and_what_was_given() {
+        let parsed = parse(":= start\nAlice: [upper()] and [max(1)]\n---\n");
+
+        let messages: Vec<_> = parsed
+            .diagnostics
+            .iter()
+            .map(|d| d.kind.to_string())
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "builtin `upper` expects 1 argument, got 0",
+                "builtin `max` expects at least 2 arguments, got 1",
+            ]
+        );
+    }
+
+    /// An error stops the compilation: the dialogue would fail on that call.
+    #[test]
+    fn a_builtin_called_wrong_does_not_compile() {
+        let file = crate::RepliqueFile::from_source(":= start\nAlice: [upper()]\n---\n");
+
+        assert!(file.has_errors());
+        assert!(file.dialogue.is_none());
     }
 }

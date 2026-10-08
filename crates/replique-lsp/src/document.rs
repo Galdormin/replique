@@ -3,6 +3,7 @@ use replique::parser::{
     ast::NodeDecl,
     diagnostic::{Diagnostic, Diagnostics, Severity},
     parse,
+    validation::RepliqueSchema,
 };
 use tower_lsp_server::ls_types;
 
@@ -20,10 +21,19 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn new(uri: ls_types::Uri, source: String) -> Self {
+    /// Reads `source`, and checks it against the schema of its project when it has one.
+    pub fn new(uri: ls_types::Uri, source: String, schema: Option<&RepliqueSchema>) -> Self {
         let line_index = LineIndex::new(&source);
-        let parsed = parse(&source);
-        let completion = Completion::new(&parsed.nodes);
+        let mut parsed = parse(&source);
+        if let Some(schema) = schema {
+            parsed.validate(schema);
+        }
+
+        let completion = if let Some(schema) = schema {
+            Completion::new(&parsed.nodes).with_schema(schema)
+        } else {
+            Completion::new(&parsed.nodes)
+        };
 
         Self {
             uri,

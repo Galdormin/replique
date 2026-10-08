@@ -37,7 +37,10 @@ use std::{
     slice::Iter,
 };
 
-use crate::parser::{LineIndex, Span};
+use crate::{
+    builtins::Arity,
+    parser::{LineIndex, Span},
+};
 
 /// How bad a diagnostic is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -169,6 +172,29 @@ pub enum DiagnosticKind {
     MisplacedTag(String),
     /// The same tag name twice on a line: `#mood:angry Hi #mood:sad`.
     DuplicateTag(String),
+    /// The speaker of a line is unknown in the schema.
+    UnknownSpeaker(String),
+    /// The tag is unknown to the schema.
+    UnknownTag(String),
+    /// The command is unknown to the schema.
+    UnknownCommand(String),
+    /// The function is unknown to the schema.
+    UnknownFunction(String),
+    /// A builtin function called with a wrong number of arguments.
+    BuiltinArity {
+        name: String,
+        got: usize,
+        expected: Arity,
+    },
+    /// The command/function has a wrong arity.
+    WrongArity {
+        call: String,
+        got: usize,
+        expected: Arity,
+    },
+    /// A tag the schema keeps for some speakers, on a line of someone else,
+    /// on a line without a speaker or on a choice.
+    TagOutOfScope { tag: String, scope: Vec<String> },
 }
 
 impl DiagnosticKind {
@@ -214,7 +240,8 @@ impl DiagnosticKind {
             | UnclosedDict
             | ExpectedColon
             | ExpectedKey
-            | StrayLoopControl(_) => Severity::Error,
+            | StrayLoopControl(_)
+            | BuiltinArity { .. } => Severity::Error,
 
             EmptyNode
             | SingleChoice
@@ -224,7 +251,13 @@ impl DiagnosticKind {
             | TrailingAfterCommand
             | DuplicateKey(_)
             | MisplacedTag(_)
-            | DuplicateTag(_) => Severity::Warning,
+            | DuplicateTag(_)
+            | UnknownSpeaker(_)
+            | UnknownTag(_)
+            | UnknownCommand(_)
+            | UnknownFunction(_)
+            | TagOutOfScope { .. }
+            | WrongArity { .. } => Severity::Warning,
         }
     }
 
@@ -278,8 +311,15 @@ impl DiagnosticKind {
             ExpectedKey => "expected-key",
             DuplicateKey(_) => "duplicate-key",
             StrayLoopControl(_) => "stray-loop-control",
+            BuiltinArity { .. } => "builtin-arity",
             MisplacedTag(_) => "misplaced-tag",
             DuplicateTag(_) => "duplicate-tag",
+            UnknownSpeaker(_) => "unknown-speaker",
+            UnknownTag(_) => "unknown-tag",
+            UnknownCommand(_) => "unknown-command",
+            UnknownFunction(_) => "unknown-function",
+            WrongArity { .. } => "wrong-arity",
+            TagOutOfScope { .. } => "tag-out-of-scope",
         }
     }
 }
@@ -394,6 +434,32 @@ impl fmt::Display for DiagnosticKind {
                 "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
+            BuiltinArity {
+                name,
+                got,
+                expected,
+            } => write!(f, "builtin `{name}` expects {expected}, got {got}"),
+            UnknownSpeaker(speaker) => write!(f, "speaker `{speaker}` is unknown"),
+            UnknownTag(tag) => write!(f, "tag `#{tag}` is unknown"),
+            UnknownCommand(command) => write!(f, "command `{command}` is unknown"),
+            UnknownFunction(function) => write!(f, "function `{function}` is unknown"),
+            TagOutOfScope { tag, scope } if scope.is_empty() => {
+                write!(f, "tag `#{tag}` is scoped to no speaker")
+            }
+            TagOutOfScope { tag, scope } => write!(
+                f,
+                "tag `#{tag}` is only for the lines of {}",
+                scope
+                    .iter()
+                    .map(|speaker| format!("`{speaker}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            WrongArity {
+                call,
+                got,
+                expected,
+            } => write!(f, "`{call}` expects {expected}, got {got}"),
         }
     }
 }

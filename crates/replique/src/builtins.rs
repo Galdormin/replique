@@ -107,6 +107,7 @@ impl fmt::Display for Arity {
             Arity::Exact(1) => f.write_str("1 argument"),
             Arity::Exact(n) => write!(f, "{n} arguments"),
             Arity::Range(low, high) => write!(f, "{low} to {high} arguments"),
+            Arity::AtLeast(1) => f.write_str("at least 1 argument"),
             Arity::AtLeast(n) => write!(f, "at least {n} arguments"),
         }
     }

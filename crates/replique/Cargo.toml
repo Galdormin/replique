@@ -14,6 +14,8 @@ readme = "../../README.md"
 thiserror = { workspace = true }
 logos = "0.16"
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 insta = "1.48"
