@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Galdormin/replique/compare/replique-lsp-v0.1.1...replique-lsp-v0.2.0) - 2026-10-08
+
+### Added
+
+- *(lsp)* add tag completion
+- *(lsp)* add schema detection to lsp
+- *(replique)* add speaker validation
+
+### Other
+
+- release v0.1.1
+
 ## [0.1.1](https://github.com/Galdormin/replique/compare/replique-lsp-v0.1.0...replique-lsp-v0.1.1) - 2026-09-24
 
 ### Other

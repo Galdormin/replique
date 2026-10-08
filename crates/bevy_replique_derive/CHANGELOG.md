@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Galdormin/replique/compare/bevy_replique_derive-v0.1.1...bevy_replique_derive-v0.2.0) - 2026-10-08
+
+### Added
+
+- *(replique)* add line tag at start and end
+- *(bevy_replique)* add feature support to bevy_replique
+
+### Other
+
+- bump version
+- release v0.1.1
+
 ## [0.1.1](https://github.com/Galdormin/replique/compare/bevy_replique_derive-v0.1.0...bevy_replique_derive-v0.1.1) - 2026-09-24
 
 ### Other
