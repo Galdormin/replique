@@ -15,6 +15,12 @@ is what CI will fail on.
 
 Every `.rep` file is re-parsed on open and on each change, and the whole report is published: errors and warnings, each with its code.
 
+### Project schema
+
+When a `replique.toml` lies above a file, the file is also checked against it: speakers, tags, commands and functions the project does not declare are reported, the same way `replique check --schema` does.
+
+The nearest `replique.toml` is used, looking up from the directory of the file and no further than the workspace folder. It is read again when it changes on disk, which shows at the next edit of a dialogue. A `replique.toml` that cannot be read is told in a message, and checks nothing.
+
 ### Completion
 
 What is offered depends on where the cursor sits on the line:
