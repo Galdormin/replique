@@ -61,6 +61,8 @@ use crate::{
 use super::ast::is_valid_ident;
 
 /// What a `replique.toml` contains.
+///
+/// See [module](self).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RepliqueSchema {
     /// Allowed speakers.
