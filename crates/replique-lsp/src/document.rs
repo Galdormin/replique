@@ -28,7 +28,12 @@ impl Document {
         if let Some(schema) = schema {
             parsed.validate(schema);
         }
-        let completion = Completion::new(&parsed.nodes);
+
+        let completion = if let Some(schema) = schema {
+            Completion::new(&parsed.nodes).with_schema(schema)
+        } else {
+            Completion::new(&parsed.nodes)
+        };
 
         Self {
             uri,

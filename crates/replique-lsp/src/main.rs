@@ -107,8 +107,8 @@ impl LanguageServer for RepliqueLanguageServer {
                 )),
                 completion_provider: Some(CompletionOptions {
                     // Without these, the client only asks once a word is
-                    // started: `=>` and `>>` would never offer anything.
-                    trigger_characters: Some(vec![">".into(), "$".into()]),
+                    // started: `=>`, `>>` and `#` would never offer anything.
+                    trigger_characters: Some(vec![">".into(), "$".into(), "#".into()]),
                     ..Default::default()
                 }),
                 ..Default::default()

@@ -31,6 +31,9 @@ What is offered depends on where the cursor sits on the line:
 | After `>>` | Commands called anywhere in the file     | `shake()`               |
 | After `=>` | Nodes declared in the file               | `meeting`               |
 | After `$`  | Variables assigned in the file           | `gold`                  |
+| After `#`  | Tags written in the file                 | `angry`                 |
+
+With a `replique.toml` above the file, the speakers, commands and tags it declares are offered instead of the ones seen in the file, and a tag kept for some speakers is only offered on their lines.
 
 Names are collected from the whole file, nested blocks included: a speaker who only talks inside a choice, or a command only called in an `[if]` branch, is offered like any other.
 
