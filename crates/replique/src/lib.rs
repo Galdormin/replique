@@ -138,6 +138,43 @@
 //! [`Choice`]: vm::Choice
 //! [`DialogueEvent::Choices`]: vm::DialogueEvent::Choices
 //!
+//! # Schema
+//!
+//! With a [`RepliqueSchema`], the parsed dialogue can be validated against
+//! speaker, tags, functions and commands.
+//!
+//! ```rust
+//! use replique::parser::parse;
+//! use replique::parser::validation::RepliqueSchema;
+//!
+//! let schema = RepliqueSchema::from_toml(
+//!     r#"
+//!     speakers = ["Robin", "Fanny"]
+//!
+//!     [tags]
+//!     sad = { scope = ["Fanny"] }
+//!
+//!     [commands]
+//!     change_mood = "2"
+//!     "#,
+//! )
+//! .unwrap();
+//!
+//! let mut parsed = parse(
+//!     ":= start\nFany: Hi!\nRobin: #sad Hello.\n>> change_mood(Fanny)\n---\n",
+//! );
+//! parsed.validate(&schema);
+//!
+//! let codes: Vec<_> = parsed.diagnostics.iter().map(|d| d.kind.code()).collect();
+//! assert_eq!(codes, ["unknown-speaker", "tag-out-of-scope", "wrong-arity"]);
+//! ```
+//!
+//! What a schema finds is a warning: the dialogue still compiles and runs.
+//! Each section is optional and is not checked when empty. The [`builtins`]
+//! are known to every schema. See [`parser::validation`] for the format of the file.
+//!
+//! [`RepliqueSchema`]: parser::validation::RepliqueSchema
+//!
 //! # Compiling
 //!
 //! [`RepliqueFile`] is the front door: it parses and compiles a source in one
