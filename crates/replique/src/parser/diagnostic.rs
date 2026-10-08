@@ -171,6 +171,11 @@ pub enum DiagnosticKind {
     DuplicateTag(String),
     /// The speaker of a line is unknown in the schema.
     UnknownSpeaker(String),
+    /// A tag the schema does not name.
+    UnknownTag(String),
+    /// A tag the schema keeps for some speakers, on a line of someone else,
+    /// on a line without a speaker or on a choice.
+    TagOutOfScope { tag: String, scope: Vec<String> },
 }
 
 impl DiagnosticKind {
@@ -227,7 +232,9 @@ impl DiagnosticKind {
             | DuplicateKey(_)
             | MisplacedTag(_)
             | DuplicateTag(_)
-            | UnknownSpeaker(_) => Severity::Warning,
+            | UnknownSpeaker(_)
+            | UnknownTag(_)
+            | TagOutOfScope { .. } => Severity::Warning,
         }
     }
 
@@ -284,6 +291,8 @@ impl DiagnosticKind {
             MisplacedTag(_) => "misplaced-tag",
             DuplicateTag(_) => "duplicate-tag",
             UnknownSpeaker(_) => "unknown-speaker",
+            UnknownTag(_) => "unknown-tag",
+            TagOutOfScope { .. } => "tag-out-of-scope",
         }
     }
 }
@@ -399,6 +408,19 @@ impl fmt::Display for DiagnosticKind {
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
             UnknownSpeaker(speaker) => write!(f, "speaker {speaker} is unknown"),
+            UnknownTag(tag) => write!(f, "tag `#{tag}` is unknown"),
+            TagOutOfScope { tag, scope } if scope.is_empty() => {
+                write!(f, "tag `#{tag}` is scoped to no speaker")
+            }
+            TagOutOfScope { tag, scope } => write!(
+                f,
+                "tag `#{tag}` is only for the lines of {}",
+                scope
+                    .iter()
+                    .map(|speaker| format!("`{speaker}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }

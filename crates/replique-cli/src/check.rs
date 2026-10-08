@@ -25,7 +25,7 @@ pub fn check(args: &CheckArgs) -> Result<Outcome> {
         let mut parsed = replique::parser::parse(&src);
 
         if let Some(schema) = &maybe_schema {
-            parsed.validate(&schema);
+            parsed.validate(schema);
         }
 
         let diagnostics = parsed.diagnostics.with_path(path);

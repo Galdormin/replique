@@ -49,6 +49,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::parser::{
+    Spanned, Tag,
     ast::{NodeDecl, StmtKind},
     diagnostic::{DiagnosticKind, Diagnostics},
 };
@@ -252,20 +253,61 @@ impl RepliqueSchema {
 
     /// Validate a [`NodeDecl`] based on the data of the Schema
     ///
-    /// A schema that names no speaker says nothing about who can speak, and
-    /// no line is checked against it.
+    /// A part the schema leaves empty is not checked: without `speakers`
+    /// anyone can speak, without `[tags]` any tag can be written.
     pub fn validate(&self, node: &NodeDecl, diags: &mut Diagnostics) {
         for stmt in node.all_statements() {
-            if let StmtKind::Say {
-                speaker: Some(speaker),
-                ..
-            } = &stmt.kind
-                && !self.speakers.is_empty()
-                && !self.speakers.contains(&speaker.value)
+            match &stmt.kind {
+                StmtKind::Say { speaker, tags, .. } => {
+                    if let Some(speaker) = speaker {
+                        self.validate_speaker(speaker, diags);
+                    }
+                    self.validate_tags(tags, speaker.as_ref(), diags);
+                }
+                StmtKind::Choice { choices } => {
+                    for choice in choices {
+                        self.validate_tags(&choice.tags, None, diags);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn validate_speaker(&self, speaker: &Spanned<String>, diags: &mut Diagnostics) {
+        if !self.speakers.is_empty() && !self.speakers.contains(&speaker.value) {
+            diags.push(
+                speaker.span,
+                DiagnosticKind::UnknownSpeaker(speaker.value.clone()),
+            );
+        }
+    }
+
+    fn validate_tags(
+        &self,
+        tags: &[Spanned<Tag>],
+        speaker: Option<&Spanned<String>>,
+        diags: &mut Diagnostics,
+    ) {
+        if self.tags.is_empty() {
+            return;
+        }
+
+        for Spanned { value: tag, span } in tags {
+            let Some(schema) = self.tags.iter().find(|schema| schema.name == tag.name) else {
+                diags.push(*span, DiagnosticKind::UnknownTag(tag.name.clone()));
+                continue;
+            };
+
+            if let TagScope::Speakers(scope) = &schema.scope
+                && !speaker.is_some_and(|speaker| scope.contains(&speaker.value))
             {
                 diags.push(
-                    speaker.span,
-                    DiagnosticKind::UnknownSpeaker(speaker.value.clone()),
+                    *span,
+                    DiagnosticKind::TagOutOfScope {
+                        tag: tag.name.clone(),
+                        scope: scope.clone(),
+                    },
                 );
             }
         }
@@ -662,5 +704,172 @@ Une ligne sans personne.
 
         assert_eq!(parsed.diagnostics.errors(), 0);
         assert!(!parsed.diagnostics.is_empty());
+    }
+
+    const TAGS: &str = r#"
+speakers = ["Robin", "Fanny"]
+
+[tags]
+happy = { scope = ["Robin", "Fanny"] }
+sad = { scope = ["Fanny"] }
+delay = {}
+"#;
+
+    #[test]
+    fn a_tag_of_the_schema_is_valid_where_its_scope_allows_it() {
+        let src = ":= start
+Robin: #happy Salut #delay:2
+Fanny: #sad Bof. #happy
+#delay Une ligne sans personne.
+-> #delay Partir
+    Fanny: Au revoir. #sad
+-> Rester
+    Robin: Reste.
+---
+";
+
+        assert!(validated(TAGS, src).is_empty());
+    }
+
+    #[test]
+    fn warning_on_a_tag_the_schema_does_not_name() {
+        let src = ":= start
+Robin: #hapy Salut #delay
+-> #dellay Partir
+    Fanny: Au revoir. #Sad
+-> Rester
+    Robin: Reste.
+---
+";
+
+        assert_eq!(
+            validated(TAGS, src),
+            [
+                ("unknown-tag", "#hapy".to_owned()),
+                ("unknown-tag", "#dellay".to_owned()),
+                ("unknown-tag", "#Sad".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn warning_on_a_tag_on_a_line_of_someone_out_of_its_scope() {
+        let src = ":= start\nRobin: #sad Bof. #happy\n---\n";
+
+        assert_eq!(
+            validated(TAGS, src),
+            [("tag-out-of-scope", "#sad".to_owned())]
+        );
+    }
+
+    /// A scoped tag belongs to its speakers: a line no one says and a choice
+    /// have none to show.
+    #[test]
+    fn warning_on_a_scoped_tag_where_no_one_speaks() {
+        let src = ":= start
+#happy Une ligne sans personne.
+-> #sad Partir
+    Fanny: Au revoir.
+-> Rester
+    Fanny: Reste.
+---
+";
+
+        assert_eq!(
+            validated(TAGS, src),
+            [
+                ("tag-out-of-scope", "#happy".to_owned()),
+                ("tag-out-of-scope", "#sad".to_owned()),
+            ]
+        );
+    }
+
+    /// The scope is checked against who speaks, known to the schema or not:
+    /// the speaker gets its own warning.
+    #[test]
+    fn an_unknown_speaker_is_out_of_every_scope() {
+        let src = ":= start\nFany: #sad Bof. #delay\n---\n";
+
+        assert_eq!(
+            validated(TAGS, src),
+            [
+                ("unknown-speaker", "Fany".to_owned()),
+                ("tag-out-of-scope", "#sad".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tag_scoped_to_no_one_is_out_of_scope_everywhere() {
+        let schema = "speakers = [\"Robin\"]\n[tags]\nold = { scope = [] }\n";
+        let src = ":= start\nRobin: #old Salut.\n#old Personne.\n---\n";
+
+        assert_eq!(
+            validated(schema, src),
+            [
+                ("tag-out-of-scope", "#old".to_owned()),
+                ("tag-out-of-scope", "#old".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tags_are_checked_in_every_block() {
+        let src = ":= start
+[if true]
+    [while false]
+        -> un
+            Robin: #nope Salut.
+        -> #nada deux
+            Robin: Salut.
+---
+";
+
+        assert_eq!(
+            validated(TAGS, src),
+            [
+                ("unknown-tag", "#nada".to_owned()),
+                ("unknown-tag", "#nope".to_owned()),
+            ]
+        );
+    }
+
+    /// A schema without `[tags]` says nothing about tags: it does not make
+    /// every one of them unknown.
+    #[test]
+    fn a_schema_without_tags_checks_no_tag() {
+        let src = ":= start\nRobin: #anything Salut #goes:1\n---\n";
+
+        assert!(validated("", src).is_empty());
+        assert!(validated("speakers = [\"Robin\"]\n[tags]\n", src).is_empty());
+    }
+
+    #[test]
+    fn the_value_of_a_tag_is_not_checked() {
+        let src = ":= start\nRobin: #delay Salut.\nRobin: #delay:2 Salut.\nRobin: #delay:x.y Salut.\n---\n";
+
+        assert!(validated(TAGS, src).is_empty());
+    }
+
+    #[test]
+    fn a_tag_warning_is_only_a_warning_and_says_who_the_tag_is_for() {
+        let src = ":= start\nRobin: #sad Bof. #nope\n---\n";
+        let mut parsed = crate::parser::parse(src);
+
+        parsed.validate(&schema(TAGS));
+
+        assert_eq!(parsed.diagnostics.errors(), 0);
+        let messages: Vec<_> = parsed
+            .diagnostics
+            .iter()
+            .map(|d| d.kind.to_string())
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "tag `#sad` is only for the lines of `Fanny`",
+                "tag `#nope` is unknown"
+            ]
+        );
     }
 }
