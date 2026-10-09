@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Galdormin/replique/compare/replique-cli-v0.1.1...replique-cli-v0.2.0) - 2026-10-08
+
+### Added
+
+- *(replique)* add tag validation
+- *(cli)* add --schema to replique_cli
+
+### Other
+
+- *(replique)* add RepliqueSchema doc to lib
+- release v0.1.1
+
 ## [0.1.1](https://github.com/Galdormin/replique/compare/replique-cli-v0.1.0...replique-cli-v0.1.1) - 2026-09-24
 
 ### Other

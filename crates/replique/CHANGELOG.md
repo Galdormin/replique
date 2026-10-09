@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Galdormin/replique/compare/replique-v0.1.1...replique-v0.2.0) - 2026-10-08
+
+### Added
+
+- *(replique)* add function validation + builtin validation
+- *(replique)* add command validation + merge arity
+- *(replique)* add tag validation
+- *(replique)* add speaker validation
+- *(replique)* add schema parsing
+- *(bevy_replique)* add tags to bevy_replique
+- *(replique)* add line tag at start and end
+- *(bevy_replique)* add feature support to bevy_replique
+- *(replique)* add has_feature to host
+- *(replique)* add has keyword to detect key in dict
+
+### Other
+
+- *(replique)* add RepliqueSchema doc to lib
+- bump version
+- *(replique)* add ref to module in RepliqueSchema
+- release v0.1.1
+
 ## [0.1.1](https://github.com/Galdormin/replique/compare/replique-v0.1.0...replique-v0.1.1) - 2026-09-24
 
 ### Added
