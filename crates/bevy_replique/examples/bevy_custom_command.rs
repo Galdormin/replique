@@ -352,7 +352,7 @@ fn handle_tween(
 }
 
 fn despawn_on_tween_end(
-    tween_ended: On<Remove, TweenMargin>,
+    tween_ended: On<Remove<TweenMargin>>,
     mut commands: Commands,
     tweens: Query<(), With<DespawnOnTweenEnd>>,
 ) {
@@ -361,7 +361,7 @@ fn despawn_on_tween_end(
     }
 }
 
-fn remove_await_on_tween_end(tween_ended: On<Remove, TweenMargin>, mut commands: Commands) {
+fn remove_await_on_tween_end(tween_ended: On<Remove<TweenMargin>>, mut commands: Commands) {
     commands.entity(tween_ended.entity).remove::<AwaitedBy>();
 }
 

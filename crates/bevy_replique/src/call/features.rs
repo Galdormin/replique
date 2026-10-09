@@ -266,7 +266,7 @@ fn resolve_subject(world: &mut World, runner: Entity, name: &str) -> Result<Enti
 /// it into one visible to all would hand a dialogue an `Alice` that was meant
 /// for another.
 pub(crate) fn forget_runner(
-    removed: On<Remove, DialogueRunner>,
+    removed: On<Remove<DialogueRunner>>,
     mut subjects: Query<&mut RepliqueSubject>,
 ) {
     let runner = removed.entity;
