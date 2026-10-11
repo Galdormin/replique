@@ -102,7 +102,7 @@ pub enum EvalError {
     Overflow { op: String },
     #[error("Dict has no attribute {0}")]
     DictHasNoAttr(String),
-    #[error("Attribute {name} expected Dict and received {received}")]
+    #[error("Attribute {name} expected a dict or a subject and received {received}")]
     AttrExpectedDict { name: String, received: String },
     #[error("Host error: {0}")]
     HostError(#[from] HostError),
@@ -129,6 +129,8 @@ impl Expr {
                         Value::Dict(mut map) => map
                             .remove(attr)
                             .ok_or_else(|| EvalError::DictHasNoAttr(attr.clone()))?,
+                        // A text names a subject, as it does for `has`
+                        Value::String(subject) => ctx.host.feature(&subject, attr)?,
                         other => {
                             return Err(EvalError::AttrExpectedDict {
                                 name: attr.clone(),
@@ -979,11 +981,85 @@ mod tests {
     }
 
     #[test]
-    fn no_host_gives_no_feature_to_anyone() {
+    fn no_host_knows_no_feature() {
+        assert!(matches!(
+            bin(BinaryOp::Has, str("Alice"), str("happy")),
+            Err(EvalError::HostError(HostError::UnknownFeature(name))) if name == "happy"
+        ));
+    }
+
+    /// `base.attrs`, the base being a bare word or a variable.
+    fn feature_of(base: Expr, attrs: &[&str]) -> Expr {
+        Expr::Attr {
+            base: Box::new(base),
+            attrs: attrs.iter().map(|attr| (*attr).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn an_attr_on_a_subject_reads_its_feature_from_the_host() {
+        let alice = || Expr::Litteral(str("Alice"));
+        let mut host = TestHost::default();
+
         assert_eq!(
-            bin(BinaryOp::Has, str("Alice"), str("happy")).unwrap(),
-            Value::Bool(false)
+            eval_with(&feature_of(alice(), &["mana"]), &mut host).unwrap(),
+            Value::Int(12)
         );
+        assert_eq!(
+            eval_with(&feature_of(alice(), &["stats", "hp"]), &mut host).unwrap(),
+            Value::Int(7)
+        );
+    }
+
+    #[test]
+    fn the_subject_of_an_attr_can_come_from_a_variable() {
+        let vars = VarStore::new(HashMap::from([("who".to_owned(), str("Alice"))]));
+        let mut host = TestHost::default();
+
+        let value = feature_of(Expr::Var("who".to_owned()), &["mana"]).eval(&mut EvalCtx {
+            vars: &vars,
+            host: &mut host,
+        });
+
+        assert_eq!(value.unwrap(), Value::Int(12));
+    }
+
+    #[test]
+    fn error_on_a_feature_the_host_cannot_give() {
+        let read = |subject: &str, feature: &str| {
+            eval_with(
+                &feature_of(Expr::Litteral(str(subject)), &[feature]),
+                &mut TestHost::default(),
+            )
+        };
+
+        assert!(matches!(
+            read("Bob", "mana"),
+            Err(EvalError::HostError(HostError::FeatureNotOnSubject { .. }))
+        ));
+        assert!(matches!(
+            read("Alice", "luck"),
+            Err(EvalError::HostError(HostError::UnknownFeature(_)))
+        ));
+        assert!(matches!(
+            read("Zoe", "mana"),
+            Err(EvalError::HostError(HostError::UnknownSubject(_)))
+        ));
+        assert!(matches!(
+            eval_with(
+                &feature_of(Expr::Litteral(str("Alice")), &["mana"]),
+                &mut NoHost
+            ),
+            Err(EvalError::HostError(HostError::UnknownFeature(_)))
+        ));
+    }
+
+    #[test]
+    fn error_on_an_attr_read_on_what_is_neither_a_dict_nor_a_subject() {
+        assert!(matches!(
+            eval_with(&feature_of(int(3), &["mana"]), &mut TestHost::default()),
+            Err(EvalError::AttrExpectedDict { .. })
+        ));
     }
 
     #[test]
@@ -1043,6 +1119,10 @@ mod tests {
 
             fn has_feature(&mut self, _: &str, _: &str) -> Result<bool, HostError> {
                 Ok(false)
+            }
+
+            fn feature(&mut self, _: &str, name: &str) -> Result<Value, HostError> {
+                Err(HostError::UnknownFeature(name.to_owned()))
             }
         }
 

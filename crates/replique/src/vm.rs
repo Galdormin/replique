@@ -1851,6 +1851,43 @@ Bob: [$never_set]
         assert_eq!(lines, ["Alice: No magic."]);
     }
 
+    #[test]
+    fn a_feature_is_read_off_its_subject() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start
+[if Alice has mana and Alice.mana > 10]
+    Alice: I have [Alice.mana] mana and [Alice.stats.hp] hit points.
+[if Bob has mana and Bob.mana > 10]
+    Bob: Never said.
+[let $who = \"Alice\"]
+Alice: Still [$who.mana].
+Bob: [Bob.mana]
+---
+",
+        );
+        assert!(!file.has_errors());
+
+        let mut vm = DialogueVm::default();
+        let mut host = TestHost::default();
+
+        let (_, text) = expect_line(
+            vm.start_with(&mut host, file.dialogue.unwrap(), "start")
+                .unwrap(),
+        );
+        assert_eq!(text, "I have 12 mana and 7 hit points.");
+
+        // Bob has no mana: the `and` stops there, and nothing is read.
+        let (_, text) = expect_line(vm.resume_with(&mut host, ResumeEvent::Advance).unwrap());
+        assert_eq!(text, "Still 12.");
+
+        // Read without asking first, a feature the subject lacks is an error.
+        let err = expect_err(vm.resume_with(&mut host, ResumeEvent::Advance));
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::HostError(HostError::FeatureNotOnSubject { .. }))
+        ));
+    }
+
     /// The host is only reached when a step names a function: a dialogue that
     /// calls none never touches it.
     #[test]

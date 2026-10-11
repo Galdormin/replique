@@ -159,4 +159,8 @@ impl<'a> RepliqueHost for DialogueHost<'a> {
     fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError> {
         features::has_feature(self.world, self.token.runner(), subject, name)
     }
+
+    fn feature(&mut self, subject: &str, name: &str) -> Result<Value, HostError> {
+        todo!()
+    }
 }

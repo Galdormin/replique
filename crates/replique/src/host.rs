@@ -17,6 +17,8 @@ pub enum HostError {
     UnknownSubject(String),
     #[error("feature {0} is unknown")]
     UnknownFeature(String),
+    #[error("feature {feature} is not on the subject {subject}")]
+    FeatureNotOnSubject { feature: String, subject: String },
 }
 
 pub trait RepliqueHost {
@@ -25,6 +27,9 @@ pub trait RepliqueHost {
 
     /// Check if a subject has the given feature
     fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError>;
+
+    /// Value of the feature of a subject, as `Alice.Mana` reads it.
+    fn feature(&mut self, subject: &str, name: &str) -> Result<Value, HostError>;
 }
 
 /// Default host, no additional function available.
@@ -36,8 +41,12 @@ impl RepliqueHost for NoHost {
         Err(HostError::UnknownFunction(name.into()))
     }
 
-    fn has_feature(&mut self, _: &str, _: &str) -> Result<bool, HostError> {
-        Ok(false)
+    fn has_feature(&mut self, _: &str, name: &str) -> Result<bool, HostError> {
+        Err(HostError::UnknownFeature(name.into()))
+    }
+
+    fn feature(&mut self, _: &str, name: &str) -> Result<Value, HostError> {
+        Err(HostError::UnknownFeature(name.into()))
     }
 }
 
@@ -50,6 +59,9 @@ pub(crate) mod test {
     ///
     /// The functions are the smallest set the tests need: one over a string,
     /// two over an int, and one that always fails.
+    ///
+    /// Alice and Bob are its subjects. Their moods are features with no value
+    /// of their own; `mana` and `stats` are features only Alice has.
     #[derive(Default)]
     pub(crate) struct TestHost {
         /// Every call, in the order the VM made them, arguments already
@@ -93,8 +105,10 @@ pub(crate) mod test {
         }
 
         fn has_feature(&mut self, subject: &str, name: &str) -> Result<bool, HostError> {
-            let supported_features = ["happy", "sad", "angry", "hungry", "thirsty"];
-            let alice_features = ["happy", "hungry"];
+            let supported_features = [
+                "happy", "sad", "angry", "hungry", "thirsty", "mana", "stats",
+            ];
+            let alice_features = ["happy", "hungry", "mana", "stats"];
             let bob_features = ["sad", "hungry", "thirsty"];
 
             if !supported_features.contains(&name) {
@@ -106,6 +120,22 @@ pub(crate) mod test {
                 "Bob" => Ok(bob_features.contains(&name)),
                 _ => Err(HostError::UnknownSubject(subject.to_string())),
             }
+        }
+
+        fn feature(&mut self, subject: &str, name: &str) -> Result<Value, HostError> {
+            if !self.has_feature(subject, name)? {
+                return Err(HostError::FeatureNotOnSubject {
+                    feature: name.to_owned(),
+                    subject: subject.to_owned(),
+                });
+            }
+
+            Ok(match name {
+                "mana" => Value::Int(12),
+                "stats" => Value::Dict([("hp".to_owned(), Value::Int(7))].into_iter().collect()),
+                // A mood holds nothing: having it is all there is to read.
+                _ => Value::Bool(true),
+            })
         }
     }
 }

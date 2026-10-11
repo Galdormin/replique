@@ -160,8 +160,13 @@ impl<'a> ExprParser<'a> {
 
     /// Read the first expression of the line
     fn prefix(&mut self) -> Spanned<Expr> {
+        let subject = matches!(
+            self.peek_token(),
+            Some(Token::Ident(word)) if !matches!(word.as_str(), "true" | "false")
+        );
+
         let base = self.primary();
-        self.attrs(base)
+        self.attrs(base, subject)
     }
 
     /// Return the base of a potential attr
@@ -211,8 +216,8 @@ impl<'a> ExprParser<'a> {
         }
     }
 
-    /// Attaches every `.attr` to the base
-    fn attrs(&mut self, base: Spanned<Expr>) -> Spanned<Expr> {
+    /// Attaches every `.attr` to the base. `subject` is whether the base is a subject.
+    fn attrs(&mut self, base: Spanned<Expr>, subject: bool) -> Spanned<Expr> {
         let mut attrs = vec![];
 
         // Read all attr
@@ -231,7 +236,7 @@ impl<'a> ExprParser<'a> {
         };
         let full_span = base.span.join(last.span);
 
-        if !matches!(base.value, Expr::Var { .. } | Expr::Function { .. }) {
+        if !subject && !matches!(base.value, Expr::Var { .. } | Expr::Function { .. }) {
             self.diags
                 .push(full_span, DiagnosticKind::AttributeOnNonVariable);
             return error(full_span);
@@ -708,8 +713,21 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_word_with_attr_is_the_feature_of_a_subject() {
+        assert_eq!(tree("Alice.Mana"), r#""Alice".Mana"#);
+        assert_eq!(tree("Alice.Stats.hp"), r#""Alice".Stats.hp"#);
+        assert_eq!(
+            tree("Alice has Mana and Alice.Mana > 10"),
+            r#"(and (has "Alice" "Mana") (> "Alice".Mana 10))"#
+        );
+        assert!(codes("Alice.Mana > 10").is_empty());
+    }
+
+    #[test]
     fn error_on_attr_on_non_variable() {
-        assert_eq!(codes("Alice.attr.attr"), ["attribute-on-non-variable"]);
+        for src in [r#""Alice".Mana"#, "true.Mana", "{hp: 1}.hp", "(Alice).Mana"] {
+            assert_eq!(codes(src), ["attribute-on-non-variable"], "{src}");
+        }
     }
 
     #[test]
