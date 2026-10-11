@@ -33,8 +33,11 @@ pub(super) enum LineKind<'a> {
     },
     /// `-> <src>` - a choice offered to the player.
     Choice(Spanned<&'a str>),
-    /// `=> <src>` - a jump to the node named `<src>`.
-    Jump(Spanned<&'a str>),
+    /// `=> <src>` or `<=> <src>`- a jump to the node named `<src>`.
+    Jump {
+        dest: Spanned<&'a str>,
+        jump_back: bool,
+    },
     /// `>> <src>` - a command to execute on the engine.
     Command(Spanned<&'a str>),
     /// `[let <src>]` - assigns a variable.
@@ -124,8 +127,17 @@ pub fn classify(text: &str, offset: usize) -> LineKind<'_> {
     if let Some(rest) = strip_marker(text, ":=", offset) {
         return LineKind::NodeStart(rest);
     }
+    if let Some(rest) = strip_marker(text, "<=>", offset) {
+        return LineKind::Jump {
+            dest: rest,
+            jump_back: true,
+        };
+    }
     if let Some(rest) = strip_marker(text, "=>", offset) {
-        return LineKind::Jump(rest);
+        return LineKind::Jump {
+            dest: rest,
+            jump_back: false,
+        };
     }
     if let Some(rest) = strip_marker(text, "->", offset) {
         return LineKind::Choice(rest);
@@ -187,16 +199,19 @@ pub(super) fn strip_bracket<'a>(
 
 const MARKER_CHARS: [char; 4] = ['-', '=', ':', '>'];
 
-/// Catches deformed markers (`----`, `==>`, `:==`)
+/// Catches deformed markers (`----`, `==>`, `:==`, `<==>`)
 fn malformed_marker(text: &str, offset: usize) -> Option<Spanned<&str>> {
-    let n = text
+    // A `<` only counts in front of a marker, as in `<=>`: on its own, or
+    // before a single character, it is text (`<3`, `<- back`).
+    let head = usize::from(text.starts_with('<'));
+    let n = text[head..]
         .chars()
         .take_while(|c| MARKER_CHARS.contains(c))
         .count();
 
     (n >= 2).then(|| Spanned {
-        value: &text[..n],
-        span: Span::from_length(offset, n),
+        value: &text[..head + n],
+        span: Span::from_length(offset, head + n),
     })
 }
 
@@ -354,7 +369,43 @@ mod tests {
     fn classify_detects_a_jump() {
         assert_eq!(
             classify("=> meeting", 0),
-            LineKind::Jump(Spanned::from_text("meeting", 3))
+            LineKind::Jump {
+                dest: Spanned::from_text("meeting", 3),
+                jump_back: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_deformed_jump_back_is_malformed() {
+        assert_eq!(
+            classify("<==> meeting", 0),
+            LineKind::Malformed(Spanned::from_text("<==>", 0))
+        );
+        assert_eq!(
+            classify("<=>meeting", 0),
+            LineKind::Malformed(Spanned::from_text("<=>", 0))
+        );
+    }
+
+    #[test]
+    fn a_line_that_starts_with_a_lone_angle_is_text() {
+        for text in ["<3 you", "<- back", "<= that much"] {
+            assert!(
+                matches!(classify(text, 0), LineKind::Say { speaker: None, .. }),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_detects_a_jump_back() {
+        assert_eq!(
+            classify("<=> meeting", 0),
+            LineKind::Jump {
+                dest: Spanned::from_text("meeting", 4),
+                jump_back: true
+            }
         );
     }
 

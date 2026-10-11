@@ -287,6 +287,9 @@ pub struct DialogueVm {
     dialogue: Option<Dialogue>,
     state: VmState,
     vars: VarStore,
+    /// Where to come back to at the end of a node, one entry for each `<=>`
+    /// that is still waiting, the last one taken first.
+    jump_stack: Vec<Cursor>,
 }
 
 impl DialogueVm {
@@ -360,6 +363,22 @@ impl DialogueVm {
     /// Walk steps from `cursor` until one of them needs the host, saving where
     /// to resume from and returning the matching event.
     fn run<H: RepliqueHost>(
+        &mut self,
+        host: &mut H,
+        cursor: Cursor,
+    ) -> Result<DialogueEvent, VmError> {
+        // A walk that fails leaves the state where it was, so the `<=>` it
+        // went through on the way must be forgotten with it.
+        let jump_stack = self.jump_stack.clone();
+
+        let result = self.walk(host, cursor);
+        if result.is_err() {
+            self.jump_stack = jump_stack;
+        }
+        result
+    }
+
+    fn walk<H: RepliqueHost>(
         &mut self,
         host: &mut H,
         mut cursor: Cursor,
@@ -459,8 +478,26 @@ impl DialogueVm {
                     };
                     return Ok(DialogueEvent::Choices { choices });
                 }
+                StepKind::JumpBack { dest, next } => {
+                    // A step only means something inside its node, so the
+                    // node is kept along with it.
+                    let back = Cursor {
+                        name: cursor.name,
+                        step: next,
+                    };
+                    cursor = self.get_cursor_for_node(dest)?;
+                    self.jump_stack.push(back);
+                }
                 StepKind::Jump(name) => cursor = self.get_cursor_for_node(name)?,
+                StepKind::Return => match self.jump_stack.pop() {
+                    Some(back) => cursor = back,
+                    None => {
+                        self.state = VmState::Finished;
+                        return Ok(DialogueEvent::Finished);
+                    }
+                },
                 StepKind::End => {
+                    self.jump_stack.clear();
                     self.state = VmState::Finished;
                     return Ok(DialogueEvent::Finished);
                 }
@@ -1527,6 +1564,275 @@ Alice: \\#rien n'est un tag ici
             err,
             VmError::ExprEvalError(EvalError::NotACondition(vtype)) if vtype == "int"
         ));
+    }
+
+    /// Every line of `src` from `start`, as `speaker: text`, a choice being
+    /// answered with its first entry.
+    fn lines_of(src: &str) -> Vec<String> {
+        let file = crate::RepliqueFile::from_source(src);
+        let mut vm = DialogueVm::default();
+        let mut event = vm
+            .start(file.dialogue.expect("the source compiles"), "start")
+            .unwrap();
+
+        let mut lines = vec![];
+        loop {
+            event = match event {
+                DialogueEvent::Say { speaker, text, .. } => {
+                    lines.push(format!("{}: {text}", speaker.unwrap_or_default()));
+                    vm.resume(ResumeEvent::Advance).unwrap()
+                }
+                DialogueEvent::Choices { .. } => vm.resume(ResumeEvent::Select(0)).unwrap(),
+                DialogueEvent::Command { .. } => vm.resume(ResumeEvent::Advance).unwrap(),
+                DialogueEvent::Finished => break,
+            };
+        }
+
+        assert!(vm.jump_stack.is_empty(), "a finished run waits on no `<=>`");
+        lines
+    }
+
+    #[test]
+    fn a_jump_back_comes_back_once_the_node_is_over() {
+        let lines = lines_of(
+            ":= start
+Alice: Before.
+<=> aside
+Alice: After.
+---
+
+:= aside
+Bob: Aside.
+---
+",
+        );
+
+        assert_eq!(lines, ["Alice: Before.", "Bob: Aside.", "Alice: After."]);
+    }
+
+    #[test]
+    fn a_jump_back_as_the_last_statement_ends_the_dialogue_after_its_node() {
+        let lines = lines_of(":= start\n<=> aside\n---\n\n:= aside\nBob: Aside.\n---\n");
+
+        assert_eq!(lines, ["Bob: Aside."]);
+    }
+
+    #[test]
+    fn jump_backs_nest() {
+        let lines = lines_of(
+            ":= start
+<=> outer
+Alice: Back in start.
+---
+
+:= outer
+Bob: Outer.
+<=> inner
+Bob: Back in outer.
+---
+
+:= inner
+Caroline: Inner.
+---
+",
+        );
+
+        assert_eq!(
+            lines,
+            [
+                "Bob: Outer.",
+                "Caroline: Inner.",
+                "Bob: Back in outer.",
+                "Alice: Back in start.",
+            ]
+        );
+    }
+
+    /// A `=>` moves on without coming back, but what a `<=>` is waiting for
+    /// is the end of a node, whichever it turns out to be.
+    #[test]
+    fn a_jump_inside_a_jump_back_comes_back_from_where_it_leads() {
+        let lines = lines_of(
+            ":= start
+<=> aside
+Alice: After.
+---
+
+:= aside
+Bob: Aside.
+=> further
+Bob: Never said.
+---
+
+:= further
+Caroline: Further.
+---
+",
+        );
+
+        assert_eq!(
+            lines,
+            ["Bob: Aside.", "Caroline: Further.", "Alice: After."]
+        );
+    }
+
+    #[test]
+    fn end_inside_a_jump_back_ends_the_whole_dialogue() {
+        let lines = lines_of(
+            ":= start
+<=> aside
+Alice: Never said.
+---
+
+:= aside
+Bob: Aside.
+=> END
+---
+",
+        );
+
+        assert_eq!(lines, ["Bob: Aside."]);
+    }
+
+    #[test]
+    fn a_jump_back_inside_a_block_comes_back_to_what_follows_the_block() {
+        let lines = lines_of(
+            ":= start
+-> Yes
+    <=> aside
+    Alice: Still in the choice.
+-> No
+    Alice: Never said.
+[let $n = 0]
+[while $n < 2]
+    [let $n = $n + 1]
+    <=> aside
+Alice: After.
+---
+
+:= aside
+Bob: Aside.
+---
+",
+        );
+
+        assert_eq!(
+            lines,
+            [
+                "Bob: Aside.",
+                "Alice: Still in the choice.",
+                "Bob: Aside.",
+                "Bob: Aside.",
+                "Alice: After.",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_node_can_be_reached_both_ways() {
+        let lines = lines_of(
+            ":= start
+<=> aside
+Alice: After.
+=> aside
+---
+
+:= aside
+Bob: Aside.
+---
+",
+        );
+
+        assert_eq!(lines, ["Bob: Aside.", "Alice: After.", "Bob: Aside."]);
+    }
+
+    #[test]
+    fn return_comes_back_before_the_end_of_the_node() {
+        let lines = lines_of(
+            ":= start
+<=> aside
+Alice: After.
+---
+
+:= aside
+-> Leave
+    Bob: Leaving.
+    => RETURN
+-> Stay
+    Bob: Never said.
+Bob: Never said either.
+---
+",
+        );
+
+        assert_eq!(lines, ["Bob: Leaving.", "Alice: After."]);
+    }
+
+    #[test]
+    fn return_ends_the_dialogue_when_nothing_led_here() {
+        let lines = lines_of(":= start\nAlice: Hi.\n=> RETURN\nAlice: Never said.\n---\n");
+
+        assert_eq!(lines, ["Alice: Hi."]);
+    }
+
+    /// Nothing bounds how deep a `<=>` goes: a node may come back to itself
+    /// through one as long as a line stands in between.
+    #[test]
+    fn a_node_can_jump_back_to_itself() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start
+[let $n = 0]
+<=> count
+Alice: Done at [$n].
+---
+
+:= count
+[let $n = $n + 1]
+Alice: [$n]
+[if $n < 100]
+    <=> count
+---
+",
+        );
+        let mut vm = DialogueVm::default();
+        let mut event = vm
+            .start(file.dialogue.expect("the source compiles"), "start")
+            .unwrap();
+
+        let mut last = String::new();
+        while let DialogueEvent::Say { text, .. } = event {
+            last = text;
+            event = vm.resume(ResumeEvent::Advance).unwrap();
+        }
+
+        assert_eq!(last, "Done at 100.");
+        assert!(vm.jump_stack.is_empty());
+    }
+
+    /// The line of `aside` cannot be rendered, so the `<=>` that led to it is
+    /// not taken either: the VM is still on the line before it.
+    #[test]
+    fn a_jump_back_that_fails_is_forgotten() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start
+Alice: Before.
+<=> aside
+---
+
+:= aside
+Bob: [$never_set]
+---
+",
+        );
+        let mut vm = DialogueVm::default();
+        vm.start(file.dialogue.expect("the source compiles"), "start")
+            .unwrap();
+
+        for _ in 0..3 {
+            let err = expect_err(vm.resume(ResumeEvent::Advance));
+            assert!(matches!(err, VmError::ExprEvalError(_)));
+            assert!(vm.jump_stack.is_empty());
+        }
     }
 
     /// The host is only reached when a step names a function: a dialogue that

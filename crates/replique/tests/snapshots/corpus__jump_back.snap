@@ -1,0 +1,20 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Hello!" @2:1 "Alice: Hello!"
+  jump-back other @3:1 "<=> other"
+node other
+  line Bob "Hello!" @7:1 "Bob: Hello!"
+  jump-back other_2 @8:1 "<=> other_2"
+  line Alice "Hello!" @9:1 "Alice: Hello!"
+  jump other_3 @10:1 "=> other_3"
+node other_2
+  line Caroline "Hello!" @14:1 "Caroline: Hello!"
+node other_3
+  line Damien "Hello!" @18:1 "Damien: Hello!"
+
+== diagnostics ==
+(none)

@@ -1,0 +1,10 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+say Alice "Hello!"
+say Bob "Hello!"
+say Caroline "Hello!"
+say Alice "Hello!"
+say Damien "Hello!"
+end

@@ -13,7 +13,8 @@ pub use ast::parse;
 pub use tags::Tag;
 
 pub const END_NODE_NAME: &str = "END";
-pub const RESERVED_NODE_NAMES: &[&str] = &[END_NODE_NAME];
+pub const RETURN_NODE_NAME: &str = "RETURN";
+pub const RESERVED_NODE_NAMES: &[&str] = &[END_NODE_NAME, RETURN_NODE_NAME];
 
 pub const AWAIT_KEYWORD: &str = "await";
 pub const RESERVED_COMMAND_NAMES: &[&str] = &[AWAIT_KEYWORD];

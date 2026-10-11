@@ -5,8 +5,7 @@ use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 use crate::{
     builtins::lookup,
     parser::{
-        AWAIT_KEYWORD, END_NODE_NAME, Parsed, RESERVED_COMMAND_NAMES, RESERVED_NODE_NAMES, Span,
-        Spanned,
+        AWAIT_KEYWORD, Parsed, RESERVED_COMMAND_NAMES, RESERVED_NODE_NAMES, Span, Spanned,
         diagnostic::{
             DiagnosticKind::{self, StrayLoopControl},
             Diagnostics, Label,
@@ -73,7 +72,7 @@ impl NodeDecl {
                 StmtKind::While { condition, .. } => {
                     expr_calls(&condition.value, condition.span, &mut calls);
                 }
-                StmtKind::Jump(_) | StmtKind::Break | StmtKind::Continue => {}
+                StmtKind::Jump { .. } | StmtKind::Break | StmtKind::Continue => {}
             }
         }
 
@@ -104,7 +103,10 @@ pub enum StmtKind {
     Choice {
         choices: Vec<Choice>,
     },
-    Jump(Spanned<String>),
+    Jump {
+        dest: Spanned<String>,
+        jump_back: bool,
+    },
     Command {
         name: Spanned<String>,
         args: Vec<Spanned<Expr>>,
@@ -657,17 +659,20 @@ impl<'a> Parser<'a> {
                     span: line.span,
                 })
             }
-            LineKind::Jump(name) if is_valid_ident(name.value) => Some(Stmt {
-                kind: StmtKind::Jump(name.into()),
+            LineKind::Jump { dest, jump_back } if is_valid_ident(dest.value) => Some(Stmt {
+                kind: StmtKind::Jump {
+                    dest: dest.into(),
+                    jump_back,
+                },
                 span: line.span,
             }),
-            LineKind::Jump(name) => {
-                if name.value.is_empty() {
+            LineKind::Jump { dest, .. } => {
+                if dest.value.is_empty() {
                     self.diags.push(line.span, DiagnosticKind::EmptyJump);
                 } else {
                     self.diags.push(
-                        name.span,
-                        DiagnosticKind::InvalidNodeName(name.value.into()),
+                        dest.span,
+                        DiagnosticKind::InvalidNodeName(dest.value.into()),
                     );
                 }
                 None
@@ -903,13 +908,23 @@ impl<'a> Parser<'a> {
     /// Reports every `=>` of `node` that leads nowhere.
     fn validate_jumps(&mut self, node: &NodeDecl, names: &[&String]) {
         for stmt in node.all_statements() {
-            if let StmtKind::Jump(name) = &stmt.kind
-                && !names.contains(&&name.value)
-                && name.value != END_NODE_NAME
-            {
+            let StmtKind::Jump { dest, jump_back } = &stmt.kind else {
+                continue;
+            };
+
+            // `END` and `RETURN` have no node behind them, so there is
+            // nothing to come back from.
+            if RESERVED_NODE_NAMES.contains(&dest.value.as_str()) {
+                if *jump_back {
+                    self.diags.push(
+                        stmt.span,
+                        DiagnosticKind::JumpBackToReserved(dest.value.clone()),
+                    );
+                }
+            } else if !names.contains(&&dest.value) {
                 self.diags.push(
                     stmt.span,
-                    DiagnosticKind::JumpToUnknownNode(name.value.clone()),
+                    DiagnosticKind::JumpToUnknownNode(dest.value.clone()),
                 );
             }
         }
@@ -1085,7 +1100,7 @@ fn flatten_stmts<'a>(stmts: &'a [Stmt], all: &mut Vec<&'a Stmt>) {
             }
             StmtKind::While { body, .. } => flatten_stmts(body, all),
             StmtKind::Say { .. }
-            | StmtKind::Jump(_)
+            | StmtKind::Jump { .. }
             | StmtKind::Command { .. }
             | StmtKind::Set { .. }
             | StmtKind::Break
@@ -1334,6 +1349,64 @@ mod tests {
         assert_eq!(
             codes(&in_node("-> Leave [if 1 + 2]\n-> Stay")),
             [DiagnosticKind::ConditionIsNotABool("int".into()).code()]
+        );
+    }
+
+    #[test]
+    fn a_jump_back_is_a_jump_that_comes_back() {
+        let src = ":= start\n<=> other\n=> other\n---\n\n:= other\nAlice: Hi.\n---\n";
+        let parsed = parse(src);
+        assert!(parsed.diagnostics.is_empty());
+
+        let jumps: Vec<_> = parsed.nodes[0]
+            .body
+            .iter()
+            .map(|stmt| match &stmt.kind {
+                StmtKind::Jump { dest, jump_back } => (dest.value.as_str(), *jump_back),
+                _ => panic!("expected a jump"),
+            })
+            .collect();
+        assert_eq!(jumps, [("other", true), ("other", false)]);
+    }
+
+    #[test]
+    fn error_on_a_jump_back_to_a_reserved_name() {
+        for name in ["END", "RETURN"] {
+            assert_eq!(
+                codes(&in_node(&format!("Alice: Hi.\n<=> {name}"))),
+                [DiagnosticKind::JumpBackToReserved(name.into()).code()],
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn end_and_return_are_jumps_with_no_node_behind_them() {
+        assert_eq!(
+            codes(&in_node(
+                "Alice: Hi.\n-> Leave\n    => END\n-> Back\n    => RETURN"
+            )),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[test]
+    fn error_on_a_node_named_return() {
+        assert_eq!(
+            codes(":= RETURN\nAlice: Hi.\n---\n"),
+            [DiagnosticKind::ReservedNodeName("RETURN".into()).code()]
+        );
+    }
+
+    #[test]
+    fn error_on_a_jump_back_that_leads_nowhere() {
+        assert_eq!(
+            codes(&in_node("Alice: Hi.\n<=> nope")),
+            [DiagnosticKind::JumpToUnknownNode("nope".into()).code()]
+        );
+        assert_eq!(
+            codes(&in_node("Alice: Hi.\n<=>")),
+            [DiagnosticKind::EmptyJump.code()]
         );
     }
 
@@ -2234,7 +2307,7 @@ mod tests {
                     format!("say {}", speaker.as_ref().map_or("-", |s| &s.value))
                 }
                 StmtKind::Choice { .. } => "choice".to_owned(),
-                StmtKind::Jump(name) => format!("jump {}", name.value),
+                StmtKind::Jump { dest, .. } => format!("jump {}", dest.value),
                 StmtKind::Command { name, .. } => format!("command {}", name.value),
                 StmtKind::Set { name, .. } => format!("set {}", name.value),
                 StmtKind::If { .. } => "if".to_owned(),

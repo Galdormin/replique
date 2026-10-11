@@ -173,9 +173,9 @@ pub(crate) struct Step {
 
 /// What a [`Step`] does, and where it goes next.
 ///
-/// Every variant but [`End`](StepKind::End) leads somewhere: to another step of
-/// the same node through a [`StepId`], or to another node through a
-/// [`NodeName`].
+/// Every variant but [`End`](StepKind::End) and [`Return`](StepKind::Return)
+/// leads somewhere: to another step of the same node through a [`StepId`], or
+/// to another node through a [`NodeName`].
 #[derive(Debug, Clone)]
 pub(crate) enum StepKind {
     /// A line to show, then `next`.
@@ -186,6 +186,9 @@ pub(crate) enum StepKind {
     /// Continue in the entry step of another node. The target is only resolved
     /// when the jump is taken.
     Jump(NodeName),
+    /// Continue in the entry step of another node, and come back to `next`
+    /// once that node is over.
+    JumpBack { dest: NodeName, next: StepId },
     /// A command for the host, then `next`.
     Command { command: Command, next: StepId },
     /// Give a variable its value, then `next`.
@@ -202,7 +205,10 @@ pub(crate) enum StepKind {
         then: StepId,
         otherwise: StepId,
     },
-    /// The dialogue is over.
+    /// The end of a node, or `=> RETURN`: back to where the last `<=>` left
+    /// off, or the end of the dialogue when no `<=>` led here.
+    Return,
+    /// `=> END`: the dialogue is over, whatever `<=>` led here.
     End,
 }
 

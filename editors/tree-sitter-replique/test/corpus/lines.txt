@@ -213,3 +213,37 @@ Conditional choices
   (choice
     (choice_condition
       (variable))))
+
+================================================================================
+Jump back
+================================================================================
+
+<=> haggle
+    <=> haggle
+=> RETURN
+<3 you
+Alice: a <=> b
+<= that much
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (jump
+    (node_name
+      (identifier)))
+  (jump
+    (node_name
+      (identifier)))
+  (jump
+    (node_name
+      (identifier)))
+  (say
+    (text
+      (text_chunk)))
+  (say
+    (speaker)
+    (text
+      (text_chunk)))
+  (say
+    (text
+      (text_chunk))))

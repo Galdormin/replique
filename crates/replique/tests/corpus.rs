@@ -92,8 +92,11 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     let _ = writeln!(out, "{pad}  tag {} {}", tag.value, at(src, tag.span));
                 }
             }
-            StmtKind::Jump(target) => {
-                let _ = writeln!(out, "{pad}jump {} {}", target.value, at(src, stmt.span));
+            StmtKind::Jump { dest, jump_back } => {
+                let _ = match jump_back {
+                    false => writeln!(out, "{pad}jump {} {}", dest.value, at(src, stmt.span)),
+                    true => writeln!(out, "{pad}jump-back {} {}", dest.value, at(src, stmt.span)),
+                };
             }
             StmtKind::Command {
                 name,
@@ -243,6 +246,7 @@ corpus!(
     unicode,
     forward_jump,
     jump_to_end,
+    jump_back,
     commands,
     lets,
     conditions,
