@@ -1,6 +1,7 @@
 # Summary
 
 [Introduction](introduction.md)
+[Cheat sheet](cheat-sheet.md)
 
 # Writing dialogues
 
@@ -13,6 +14,11 @@
 - [Commands and functions](syntax/commands.md)
 - [Tags](syntax/tags.md)
 
-# Reference
+# Using Replique with Bevy
 
-- [Cheat sheet](cheat-sheet.md)
+- [Getting started](bevy/setup.md)
+- [Showing a dialogue](bevy/driving.md)
+- [Commands](bevy/commands.md)
+- [Functions](bevy/functions.md)
+- [Subjects and features](bevy/features.md)
+- [Tags](bevy/tags.md)

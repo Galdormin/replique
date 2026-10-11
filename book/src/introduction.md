@@ -21,13 +21,15 @@ Caroline: Alice... You can start...
 ---
 ```
 
-This book describes the language those files are written in. It is meant for whoever writes the dialogues, and needs no Rust.
+This book describes the language those files are written in, then how to play them in a Bevy game.
 
 ## Where to go from here
 
-The chapters of _Writing dialogues_ go through the language one piece at a time, and the [cheat sheet](cheat-sheet.md) holds all of it on one page.
+The chapters of _Writing dialogues_ go through the language one piece at a time, and the [cheat sheet](cheat-sheet.md) holds all of it on one page. They are meant for whoever writes the dialogues, and need no Rust.
 
-Running a dialogue in a game, and the tools around the format, are documented with the crates:
+_Using Replique with Bevy_ is for whoever wires those dialogues into a game: loading a file, showing its lines and choices, and giving it commands and functions of the game to call.
+
+The API of each crate, and the tools around the format, are documented with the crates:
 
 | Crate                                                                                 | What it is                                   |
 | ------------------------------------------------------------------------------------- | -------------------------------------------- |
