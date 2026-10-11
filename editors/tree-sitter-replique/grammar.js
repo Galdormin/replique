@@ -23,8 +23,10 @@ const UNTIL_COLON =
 
 // First character of a line that carries text rather than a marker. A marker
 // character is allowed when the one after it cannot complete a marker: `-> a`
-// is a choice, `-5 degrees` is text. A `#` is left to the tag it may open.
-const TEXT_HEAD = /[^\n\-=:>\[/ \t#]|[-=>][^-=:>\n]|\/[^\/\n]/;
+// is a choice, `-5 degrees` is text. A `<` is text unless it opens a `<=>`.
+// A `#` is left to the tag it may open.
+const TEXT_HEAD =
+  /[^\n\-=:>\[/ \t#<]|[-=>][^-=:>\n]|<[^=\n]|<=[^>\n]|\/[^\/\n]/;
 
 module.exports = grammar({
   name: "replique",
@@ -64,8 +66,8 @@ module.exports = grammar({
     // ---
     node_end: (_) => "---",
 
-    // => meeting
-    jump: ($) => seq("=>", field("target", $.node_name)),
+    // => meeting, or <=> meeting to come back once the node is over
+    jump: ($) => seq(choice("=>", "<=>"), field("target", $.node_name)),
 
     node_name: ($) => $.identifier,
 

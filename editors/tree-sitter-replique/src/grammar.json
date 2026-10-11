@@ -115,8 +115,17 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "STRING",
-          "value": "=>"
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "=>"
+            },
+            {
+              "type": "STRING",
+              "value": "<=>"
+            }
+          ]
         },
         {
           "type": "FIELD",
@@ -435,7 +444,7 @@
         "members": [
           {
             "type": "PATTERN",
-            "value": "[^\\n\\-=:>\\[/ \\t#]|[-=>][^-=:>\\n]|\\/[^\\/\\n]"
+            "value": "[^\\n\\-=:>\\[/ \\t#<]|[-=>][^-=:>\\n]|<[^=\\n]|<=[^>\\n]|\\/[^\\/\\n]"
           },
           {
             "type": "PATTERN",
@@ -458,7 +467,7 @@
             "members": [
               {
                 "type": "PATTERN",
-                "value": "[^\\n\\-=:>\\[/ \\t#]|[-=>][^-=:>\\n]|\\/[^\\/\\n]"
+                "value": "[^\\n\\-=:>\\[/ \\t#<]|[-=>][^-=:>\\n]|<[^=\\n]|<=[^>\\n]|\\/[^\\/\\n]"
               },
               {
                 "type": "PATTERN",
