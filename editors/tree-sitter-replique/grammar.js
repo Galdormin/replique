@@ -72,7 +72,20 @@ module.exports = grammar({
     // -> I can help if you want.
     // `prec.right` keeps an inline expression that opens the text attached to
     // the marker, instead of reading it as a line of its own.
-    choice: ($) => prec.right(seq("->", optional(field("text", $.text)))),
+    // A `[if cond]` ends the line: the choice is only available when the
+    // condition holds.
+    choice: ($) =>
+      prec.right(
+        seq(
+          "->",
+          optional(field("text", $.text)),
+          optional(field("condition", $.choice_condition)),
+        ),
+      ),
+
+    // -> I am sick [if $player.is_sick]
+    choice_condition: ($) =>
+      seq("[if", field("condition", $._expression), "]"),
 
     // >> play("bell", 0.5) and >> await play_anim("wave")
     command: ($) =>

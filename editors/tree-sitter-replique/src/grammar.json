@@ -157,9 +157,46 @@
                 "type": "BLANK"
               }
             ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "condition",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "choice_condition"
+                }
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
           }
         ]
       }
+    },
+    "choice_condition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "[if"
+        },
+        {
+          "type": "FIELD",
+          "name": "condition",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_expression"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "]"
+        }
+      ]
     },
     "command": {
       "type": "SEQ",
