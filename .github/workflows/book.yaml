@@ -1,0 +1,62 @@
+name: Book
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths: ["book/**", ".github/workflows/book.yaml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  MDBOOK_VERSION: 0.5.4
+
+jobs:
+  # Build the book, so that a pull request cannot break it.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # A manual run always publishes `main`, whatever branch it is
+          # started from. A pull request builds its own changes.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || '' }}
+
+      - name: Install mdBook
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build the book
+        run: mdbook build book
+
+      - name: Upload the book
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: book/book
+
+  # Publish it to GitHub Pages.
+  deploy:
+    name: Deploy
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -2,9 +2,15 @@
 
 Replique is a pure Rust dialogue system, with first-class support for [Bevy](https://bevyengine.org).
 
+## Documentation
+
+- [The Replique Book](https://galdormin.github.io/replique/): the dialogue language, and how to use it in a Bevy game.
+- [`replique` on docs.rs](https://docs.rs/replique): API of the parser and the runtime.
+- [`bevy_replique` on docs.rs](https://docs.rs/bevy_replique): API of the Bevy plugin.
+
 It is inspired by [YarnSpinner](https://www.yarnspinner.dev), [YarnSpinner-Rust](https://github.com/YarnSpinnerTool/YarnSpinner-Rust) and [Godot Dialogue Manager](https://github.com/nathanhoad/godot_dialogue_manager). Dialogues are written in plain text files that look like this:
 
-```
+```replique
 := start
 Alice: Hi! How are you?
 Bob: Great, and you? Did you prepare the afternoon meeting?
@@ -31,6 +37,7 @@ Caroline: Alice... You can start...
 | `---`                                | End the current node                            |
 | `Speaker: text`                      | A line of dialogue                              |
 | `-> text`                            | A choice offered to the player                  |
+| `-> text [if cond]`                  | A choice only available under a condition       |
 | `>> command(arg1, arg2)`             | A command to execute on the engine              |
 | `=> name`                            | Jump to the node `name`                         |
 | `[let $var = value]`                 | Set a variable                                  |
@@ -40,12 +47,14 @@ Caroline: Alice... You can start...
 | `$dict has key`, `Alice has Angry`   | A dictionary holds a key, a subject a feature   |
 | `#name`, `#name:value`               | A tag on a line or on a choice                  |
 
+The whole language is described in [the Replique Book](https://galdormin.github.io/replique/).
+
 ## Variables, conditions and loops
 
 Variables hold numbers, strings, booleans and dictionaries. Anything written
 between `[` and `]` inside a line is evaluated and inserted where it stands:
 
-```
+```replique
 := shop
 [let $gold = 12]
 [let $player = {name: "Alice", hp: 7}]
