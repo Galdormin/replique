@@ -1835,6 +1835,22 @@ Bob: [$never_set]
         }
     }
 
+    #[test]
+    fn and_guards_what_follows_it() {
+        let lines = lines_of(
+            ":= start
+[let $stats = {strength: 3}]
+[if $stats has magic and $stats.magic > 0]
+    Alice: Never said.
+[if not ($stats has magic) or $stats.magic == 0]
+    Alice: No magic.
+---
+",
+        );
+
+        assert_eq!(lines, ["Alice: No magic."]);
+    }
+
     /// The host is only reached when a step names a function: a dialogue that
     /// calls none never touches it.
     #[test]

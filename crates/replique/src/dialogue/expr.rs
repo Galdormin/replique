@@ -156,6 +156,22 @@ impl Expr {
                 ctx.call(name, args).map_err(EvalError::HostError)
             }
             Expr::Unary { op, rhs } => unary(*op, rhs.eval(ctx)?),
+            // `and` and `or` stop at their left-hand side when it settles the
+            // answer: the right-hand side is then not evaluated at all, so
+            // `$a has hp and $a.hp > 0` never reads a key that is not there.
+            Expr::Binary {
+                op: op @ (BinaryOp::And | BinaryOp::Or),
+                lhs,
+                rhs,
+            } => {
+                let lhs = as_bool(*op, lhs.eval(ctx)?)?;
+                let settled = matches!(op, BinaryOp::Or);
+                if lhs == settled {
+                    return Ok(Value::Bool(settled));
+                }
+
+                Ok(Value::Bool(as_bool(*op, rhs.eval(ctx)?)?))
+            }
             Expr::Binary { op, lhs, rhs } => {
                 let (lhs, rhs) = (lhs.eval(ctx)?, rhs.eval(ctx)?);
                 binary(ctx.host, *op, lhs, rhs)
@@ -416,6 +432,69 @@ mod tests {
                 .map(|(key, val)| ((*key).to_owned(), val.clone()))
                 .collect(),
         )
+    }
+
+    fn logic(op: BinaryOp, lhs: Expr, rhs: Expr) -> Expr {
+        Expr::Binary {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+
+    fn boolean(value: bool) -> Expr {
+        Expr::Litteral(Value::Bool(value))
+    }
+
+    #[test]
+    fn and_and_or_do_not_evaluate_a_right_hand_side_that_cannot_change_the_answer() {
+        for (op, lhs) in [(BinaryOp::And, false), (BinaryOp::Or, true)] {
+            let mut host = TestHost::default();
+
+            // `boom` always fails: reaching it would be an error.
+            let value = eval_with(&logic(op, boolean(lhs), call("boom", vec![])), &mut host);
+
+            assert_eq!(value.unwrap(), Value::Bool(lhs), "{op}");
+            assert_eq!(host.called(), [] as [&str; 0], "{op}");
+        }
+    }
+
+    #[test]
+    fn and_and_or_evaluate_the_right_hand_side_when_the_left_one_does_not_settle() {
+        for (op, lhs, n, expected) in [
+            (BinaryOp::And, true, 2, true),
+            (BinaryOp::And, true, 3, false),
+            (BinaryOp::Or, false, 2, true),
+            (BinaryOp::Or, false, 3, false),
+        ] {
+            let mut host = TestHost::default();
+
+            let value = eval_with(
+                &logic(op, boolean(lhs), call("is_even", vec![int(n)])),
+                &mut host,
+            );
+
+            assert_eq!(
+                value.unwrap(),
+                Value::Bool(expected),
+                "{lhs} {op} is_even({n})"
+            );
+            assert_eq!(host.called(), ["is_even"]);
+        }
+    }
+
+    #[test]
+    fn error_on_and_or_whose_side_is_not_a_bool() {
+        for op in [BinaryOp::And, BinaryOp::Or] {
+            // On the left, whatever the right-hand side is.
+            let left = eval_with(&logic(op, int(1), boolean(true)), &mut NoHost);
+            assert!(matches!(left, Err(EvalError::TypeMismatch { .. })), "{op}");
+
+            // On the right, when it is reached.
+            let reached = matches!(op, BinaryOp::And);
+            let right = eval_with(&logic(op, boolean(reached), int(1)), &mut NoHost);
+            assert!(matches!(right, Err(EvalError::TypeMismatch { .. })), "{op}");
+        }
     }
 
     #[test]
