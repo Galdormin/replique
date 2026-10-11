@@ -83,6 +83,8 @@ pub enum DiagnosticKind {
     InvalidNodeName(String),
     /// `=>` without a target.
     EmptyJump,
+    /// `<=> END` or `<=> RETURN`: a `<=>` to a name no node is behind.
+    JumpBackToReserved(String),
     /// `->` without a text.
     EmptyChoiceText,
     /// `----`, `==>`, `:==`, ...
@@ -210,6 +212,7 @@ impl DiagnosticKind {
             | EmptyNodeName
             | InvalidNodeName(_)
             | EmptyJump
+            | JumpBackToReserved(_)
             | EmptyChoiceText
             | MalformedMarker(_)
             | DuplicateNodeFound(_)
@@ -273,6 +276,7 @@ impl DiagnosticKind {
             EmptyNodeName => "empty-node-name",
             InvalidNodeName(_) => "invalid-node-name",
             EmptyJump => "empty-jump",
+            JumpBackToReserved(_) => "jump-back-to-reserved",
             EmptyChoiceText => "empty-choice-text",
             MalformedMarker(_) => "malformed-marker",
             EmptyNode => "empty-node",
@@ -345,6 +349,7 @@ impl fmt::Display for DiagnosticKind {
                 "`{name}` is an invalid node name, expected a letter or `_` followed by letters, digits or `_`",
             ),
             EmptyJump => f.write_str("`=>` is missing a target node"),
+            JumpBackToReserved(name) => write!(f, "cannot jump back `<=>` to `{name}`"),
             EmptyChoiceText => f.write_str("`->` is missing a choice text"),
             MalformedMarker(marker) => {
                 write!(

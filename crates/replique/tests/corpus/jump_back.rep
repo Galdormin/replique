@@ -1,0 +1,19 @@
+:= start
+Alice: Hello!
+<=> other
+---
+
+:= other
+Bob: Hello!
+<=> other_2
+Alice: Hello!
+=> other_3
+---
+
+:= other_2
+Caroline: Hello!
+---
+
+:= other_3
+Damien: Hello!
+---

@@ -152,7 +152,8 @@ impl DialogueNodeBuilder {
 /// First target of this step that no step answers to, if any.
 ///
 /// [`StepKind::Jump`] has no target here: it leads to another node by name, not
-/// to a step of this one.
+/// to a step of this one. A [`StepKind::JumpBack`] does too, but comes back to
+/// a step that is checked.
 fn has_dangling_target(kind: &StepKind, max_id: u32) -> Option<StepId> {
     let targets = match kind {
         StepKind::Say { next, .. } => vec![next],
@@ -162,7 +163,8 @@ fn has_dangling_target(kind: &StepKind, max_id: u32) -> Option<StepId> {
             then, otherwise, ..
         } => vec![then, otherwise],
         StepKind::Choice { choices } => choices.iter().map(|c| &c.target).collect(),
-        StepKind::Jump(_) | StepKind::End => vec![],
+        StepKind::JumpBack { next, .. } => vec![next],
+        StepKind::Jump(_) | StepKind::Return | StepKind::End => vec![],
     };
     targets.into_iter().find(|t| t.id() > max_id).copied()
 }

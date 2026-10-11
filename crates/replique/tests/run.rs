@@ -134,6 +134,7 @@ run!(
     (unicode, "depart"),
     (forward_jump, "start"),
     (jump_to_end, "start"),
+    (jump_back, "start"),
     (commands, "start"),
     (lets, "start"),
     (conditions, "start"),

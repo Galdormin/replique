@@ -26,7 +26,7 @@ use crate::{
         builder::{BuildError, DialogueNodeBuilder},
     },
     parser::{
-        END_NODE_NAME, Parsed,
+        END_NODE_NAME, Parsed, RETURN_NODE_NAME,
         ast::{NodeDecl, Stmt, StmtKind},
         diagnostic::{Diagnostics, Severity},
     },
@@ -83,12 +83,12 @@ struct LoopTargets {
 
 /// Compile one node declaration.
 ///
-/// The [`StepKind::End`] is pushed first so the whole body can be threaded back
-/// from it: everything that falls through the node ends there.
+/// The [`StepKind::Return`] is pushed first so the whole body can be threaded
+/// back from it: everything that falls through the node ends there.
 fn compile_node(node: NodeDecl) -> DialogueNode {
     let mut builder = DialogueNodeBuilder::default();
 
-    let end = builder.push(StepKind::End);
+    let end = builder.push(StepKind::Return);
 
     // BuildError here are bugs and should panic
     let start = build_block(&mut builder, node.body, end, None).unwrap();
@@ -177,11 +177,24 @@ fn build_block(
 
                 next_branch
             }
-            // `=> END` is the one jump with no node behind it.
-            StmtKind::Jump(node_name) if node_name.value == END_NODE_NAME => {
+            // `=> END` and `=> RETURN` are the jumps with no node behind them.
+            StmtKind::Jump { dest, .. } if dest.value == END_NODE_NAME => {
                 builder.push(StepKind::End)
             }
-            StmtKind::Jump(node_name) => builder.push(StepKind::Jump(node_name.into())),
+            StmtKind::Jump { dest, .. } if dest.value == RETURN_NODE_NAME => {
+                builder.push(StepKind::Return)
+            }
+            StmtKind::Jump {
+                dest,
+                jump_back: false,
+            } => builder.push(StepKind::Jump(dest.into())),
+            StmtKind::Jump {
+                dest,
+                jump_back: true,
+            } => builder.push(StepKind::JumpBack {
+                dest: dest.into(),
+                next: current_id,
+            }),
             StmtKind::Choice { choices } => {
                 let choices = choices
                     .into_iter()
