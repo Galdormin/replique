@@ -17,96 +17,20 @@
 //!     Alice: Glad to hear it.
 //! -> Not great.
 //!     Alice: Oh no, what happened?
-//! => end
+//! => END
 //! ---
 //! ```
 //!
-//! | Syntax                               | Meaning                                         |
-//! | ------------------------------------ | ----------------------------------------------- |
-//! | `:= name`                            | Start a node named `name`                       |
-//! | `---`                                | End the current node                            |
-//! | `Speaker: text`                      | A line of dialogue                              |
-//! | `-> text`                            | A choice offered to the player                  |
-//! | `>> command(arg1, arg2)`             | A command to execute on the host                |
-//! | `=> name`                            | Jump to the node `name`                         |
-//! | `[let $var = value]`                 | Set a variable                                  |
-//! | `[$var]`                             | Insert a value into the line                    |
-//! | `[if cond]`, `[elif cond]`, `[else]` | Play a block only under a condition             |
-//! | `[while cond]`                       | Repeat a block, with `[break]` and `[continue]` |
-//! | `#name`, `#name:value`               | A tag on a line or on a choice                  |
+//! The language is described in [the Replique Book], which is the place to
+//! look for how a dialogue is written. This documentation is about reading
+//! and running one.
 //!
-//! # Variables, conditions and loops
-//!
-//! Variables hold numbers, strings, booleans and dictionaries. Anything written
-//! between `[` and `]` inside a line is evaluated and inserted where it stands:
-//!
-//! ```text
-//! := shop
-//! [let $gold = 12]
-//! [let $player = {name: "Alice", hp: 7}]
-//!
-//! Merchant: Welcome [$player.name]! You have [$gold] coins.
-//!
-//! [if $gold >= 10]
-//!     Merchant: The lantern is yours.
-//!     [let $gold = $gold - 10]
-//! [elif $gold > 0]
-//!     Merchant: Not quite enough, come back later.
-//! [else]
-//!     Merchant: Come back when you can pay.
-//!
-//! [while $gold > 0]
-//!     [let $gold = $gold - 1]
-//!     >> ring_bell()
-//!
-//! Merchant: [$player.name], you are leaving with [$gold] coins.
-//! ---
-//! ```
-//!
-//! [`DialogueVm::vars`] reads back every variable a run has written.
-//!
-//! [`DialogueVm::vars`]: vm::DialogueVm::vars
-//!
-//! `has` tells whether a dictionary holds a key, whatever the value under it.
-//! The key is a bare word, a string or a variable, and only the dictionary
-//! itself is searched, not the ones nested in it:
-//!
-//! ```rust
-//! use replique::RepliqueFile;
-//! use replique::vm::{DialogueEvent, DialogueVm};
-//!
-//! let file = RepliqueFile::from_source(
-//!     r#":= start
-//! [let $stats = {strength: 12}]
-//! [if $stats has strength]
-//!     Alice: I can lift that.
-//! [if not ($stats has magic)]
-//!     Alice: No spell from me, though.
-//! ---
-//! "#,
-//! );
-//! assert!(!file.has_errors());
-//!
-//! let mut vm = DialogueVm::default();
-//! let DialogueEvent::Say { text, .. } = vm.start(file.dialogue.unwrap(), "start").unwrap()
-//! else {
-//!     panic!("expected a line");
-//! };
-//! assert_eq!(text, "I can lift that.");
-//! ```
-//!
-//! Asked of a string instead of a dictionary, `has` goes to the host: in
-//! `[if Alice has Angry]`, [`RepliqueHost::has_feature`] says whether the
-//! subject `Alice` has the feature `Angry`.
-//!
-//! [`RepliqueHost::has_feature`]: host::RepliqueHost::has_feature
+//! [the Replique Book]: https://galdormin.github.io/replique/
 //!
 //! # Tags
 //!
-//! A tag is what a line says about itself rather than to the player: a mood,
-//! a sound to play, an id. It is a word of its own, `#name` or `#name:value`,
-//! written at the start or at the end of the text, and it reaches the caller
-//! apart from that text:
+//! The `#name` and `#name:value` tags of a line reach the caller apart from
+//! its text:
 //!
 //! ```rust
 //! use replique::RepliqueFile;
@@ -127,10 +51,6 @@
 //! assert_eq!(text, "Give it back!");
 //! assert_eq!(tags, [Tag::new("angry"), Tag::with_value("sound", "alice_01")]);
 //! ```
-//!
-//! A `#` only opens a tag after a blank and before a letter, so `C#` and `#1`
-//! are text, and `\#angry` writes the word with its `#`. A tag in the middle
-//! of a line is not read: it stays in the text, with a warning.
 //!
 //! A choice takes tags the same way, `-> #hostile Attack #cost:3`, and each
 //! [`Choice`] of a [`DialogueEvent::Choices`] carries its own.
@@ -225,6 +145,16 @@
 //!     };
 //! }
 //! ```
+//!
+//! A [`Choice`] whose `[if]` condition does not hold is still listed, with
+//! [`Choice::available`] set to `false`, so that the indexes do not move.
+//! Selecting it is a [`VmError::ChoiceNotAvailable`].
+//!
+//! [`DialogueVm::vars`] reads back every variable a run has written.
+//!
+//! [`Choice::available`]: vm::Choice::available
+//! [`VmError::ChoiceNotAvailable`]: vm::VmError::ChoiceNotAvailable
+//! [`DialogueVm::vars`]: vm::DialogueVm::vars
 //!
 //! A run never panics on a malformed dialogue: every way it can go wrong is a
 //! [`VmError`], including the step limit that catches nodes jumping to each

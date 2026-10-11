@@ -1,0 +1,10 @@
+[book]
+title = "The Replique Book"
+authors = ["Théo Plénet"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/Galdormin/replique"
+edit-url-template = "https://github.com/Galdormin/replique/edit/main/book/{path}"
+site-url = "/replique/"
