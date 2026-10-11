@@ -1,0 +1,27 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  choice-group @2:1 "-> Jamais fermée [if $a\n-> Du texte après [if $a] encore\n-> Un tag après [if $a] #mood\n-> Pas un booléen [if 1 + 2]\n-> Vide [if]\n-> [if $a]\n-> Deux fois [if $a] [if $b]\n-> Un mot qui commence pareil [iffy]"
+    choice "Jamais fermée" @2:1 "-> Jamais fermée [if $a"
+    choice "Du texte après" @3:1 "-> Du texte après [if $a] encore"
+    choice "Un tag après" @4:1 "-> Un tag après [if $a] #mood"
+    choice "Pas un booléen" @5:1 "-> Pas un booléen [if 1 + 2]"
+    choice "Vide" @6:1 "-> Vide [if]"
+    choice (empty) @7:1 "-> [if $a]"
+      if "$a"
+    choice "Deux fois" @8:1 "-> Deux fois [if $a] [if $b]"
+    choice "Un mot qui commence pareil " [iffy] @9:1 "-> Un mot qui commence pareil [iffy]"
+
+== diagnostics ==
+error unclosed-bracket @2:19 "[if $a"
+error unclosed-bracket @3:20 "[if $a] encore"
+error unclosed-bracket @4:18 "[if $a] #mood"
+error condition-not-a-bool @5:24 "1 + 2"
+error expected-expression @6:12 ""
+error empty-choice-text @7:1 "-> [if $a]"
+error unknown-expression-character @8:20 "]"
+error unknown-expression-character @8:22 "["
+error unexpected-text-in-bracket @8:23 "if $b"

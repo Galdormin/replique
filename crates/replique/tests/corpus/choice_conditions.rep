@@ -1,0 +1,10 @@
+:= start
+Alice: Tu vas bien ?
+-> Oui ça va
+    Alice: Tant mieux.
+-> On fait aller [if $player.mood > 2 and not is_tired()]
+-> #mood Non, je suis malade #line:aa00 [if $player.is_sick]
+    Alice: Soigne-toi bien.
+-> Donner [$gold] pièces [if $gold > 0]
+-> Rien[if true]
+---

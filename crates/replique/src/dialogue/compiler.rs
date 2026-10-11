@@ -193,6 +193,9 @@ fn build_block(
                                 .into_iter()
                                 .map(|p| p.value.try_into())
                                 .collect::<Result<_, _>>()?,
+                            condition: c
+                                .condition
+                                .map(|e| e.value.try_into().expect("checked by the parser")),
                             tags: c.tags.into_iter().map(|t| t.into_inner()).collect(),
                             target,
                         })

@@ -12,7 +12,7 @@ use crate::{
             Diagnostics, Label,
         },
         expr::{Expr, ValueType, pratt},
-        lines::{LineKind, RawLine, split_lines},
+        lines::{LineKind, RawLine, split_lines, strip_bracket},
         tags::{Tag, split_tags, tag_starts, unescape},
     },
 };
@@ -41,7 +41,8 @@ impl NodeDecl {
     ///
     /// Functions live in expressions, so this looks wherever one can be:
     /// the text of a line or of a choice, the arguments of a command, the
-    /// value of a `[let]`, and the condition of an `[if]` or of a `[while]`.
+    /// value of a `[let]`, and the condition of an `[if]`, of a `[while]` or
+    /// of a choice.
     /// A `>>` command is not a function, and is not listed.
     pub fn all_calls(&self) -> Vec<Call<'_>> {
         let mut calls = vec![];
@@ -52,6 +53,9 @@ impl NodeDecl {
                 StmtKind::Choice { choices } => {
                     for choice in choices {
                         text_calls(&choice.text, &mut calls);
+                        if let Some(condition) = &choice.condition {
+                            expr_calls(&condition.value, condition.span, &mut calls);
+                        }
                     }
                 }
                 StmtKind::Command { args, .. } => {
@@ -149,6 +153,9 @@ pub struct Choice {
     /// Text of the choice after `->`, split into its literal and inline
     /// expression parts.
     pub text: Vec<Spanned<TextPart>>,
+    /// Expression for the choice to be available.
+    /// None means always available
+    pub condition: Option<Spanned<Expr>>,
     /// The `#tags` written at the start and at the end of the text, in the
     /// order they are written.
     pub tags: Vec<Spanned<Tag>>,
@@ -407,6 +414,10 @@ impl<'a> Parser<'a> {
             }
             self.bump();
 
+            // The condition ends the line, so it goes first: the tags at the
+            // end of the text are the ones right before it.
+            let (text, condition) = self.split_choice_condition(text);
+
             // Checked once the tags are off: a choice made of tags alone
             // gives the player nothing to pick.
             let (text, tags) = self.split_tags(text);
@@ -418,6 +429,7 @@ impl<'a> Parser<'a> {
             let span = body.last().map_or(line.span, |s| line.span.join(s.span));
             choices.push(Choice {
                 text: self.parse_text_line(text),
+                condition,
                 tags,
                 body,
                 span,
@@ -543,7 +555,28 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// The condition of an `[if]` or an `[elif]`, which must be a `bool`.
+    /// Takes the `[if <cond>]` at the end of a choice, and gives what is left before it.
+    fn split_choice_condition<'t>(
+        &mut self,
+        text: Spanned<&'t str>,
+    ) -> (Spanned<&'t str>, Option<Spanned<Expr>>) {
+        let Spanned { value, span } = text;
+
+        let found = value.match_indices("[if").find_map(|(at, _)| {
+            let body = strip_bracket(&value[at..], "[if", span.start + at)?;
+            Some((at, body))
+        });
+        let Some((at, body)) = found else {
+            return (text, None);
+        };
+
+        let before = Spanned::from_text(&value[..at], span.start);
+        let condition_span = Span::from_length(span.start + at, value.len() - at);
+        (before, self.parse_condition(body, condition_span, "[if]"))
+    }
+
+    /// The condition of an `[if]`, an `[elif]`, a `[while]` or a choice,
+    /// which must be a `bool`.
     fn parse_condition(
         &mut self,
         body: Spanned<&str>,
@@ -1190,6 +1223,118 @@ mod tests {
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].text.len(), 3);
         assert!(matches!(choices[0].text[1].value, TextPart::Expression(_)));
+    }
+
+    /// The only choice of `line`, with the source its condition covers.
+    fn choice(line: &str) -> (Choice, Option<String>) {
+        let src = in_node(&format!("{line}\n-> Other"));
+        let StmtKind::Choice { mut choices } = only_stmt(&src) else {
+            panic!("expected a choice group");
+        };
+
+        let choice = choices.swap_remove(0);
+        let condition = choice
+            .condition
+            .as_ref()
+            .map(|c| src[c.span.start..c.span.end].to_owned());
+        (choice, condition)
+    }
+
+    #[test]
+    fn a_choice_without_a_condition_has_none() {
+        let (choice, condition) = choice("-> Pay [$price] gold");
+
+        assert_eq!(condition, None);
+        assert_eq!(choice.text.len(), 3);
+    }
+
+    #[test]
+    fn a_choice_ends_with_its_condition() {
+        let (choice, condition) = choice("-> I am sick [if $player.is_sick]");
+
+        assert_eq!(condition.as_deref(), Some("$player.is_sick"));
+        assert!(matches!(
+            &choice.text[..],
+            [Spanned { value: TextPart::Text(t), .. }] if t == "I am sick"
+        ));
+    }
+
+    #[test]
+    fn the_tags_of_a_choice_come_before_its_condition() {
+        let (choice, condition) = choice("-> #mood With tags #line:aa00 [if $available]");
+        let tags: Vec<_> = choice.tags.iter().map(|t| t.value.to_string()).collect();
+
+        assert_eq!(condition.as_deref(), Some("$available"));
+        assert_eq!(tags, ["#mood", "#line:aa00"]);
+        assert!(
+            matches!(&choice.text[..], [Spanned { value: TextPart::Text(t), .. }] if t == "With tags")
+        );
+    }
+
+    #[test]
+    fn a_conditional_choice_keeps_its_inline_expressions() {
+        let (choice, condition) = choice("-> Pay [$price] gold [if $gold >= $price]");
+
+        assert_eq!(condition.as_deref(), Some("$gold >= $price"));
+        assert_eq!(choice.text.len(), 3);
+        assert!(matches!(choice.text[1].value, TextPart::Expression(_)));
+    }
+
+    #[test]
+    fn a_conditional_choice_parses_without_a_diagnostic() {
+        let src = in_node("-> #mood Pay [$price] gold #line:aa00 [if $gold >= $price]\n-> Leave");
+        assert_eq!(codes(&src), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_bracket_that_only_starts_like_an_if_is_not_a_condition() {
+        let (choice, condition) = choice("-> Take [if_ready()]");
+
+        assert_eq!(condition, None);
+        assert!(matches!(choice.text[1].value, TextPart::Expression(_)));
+    }
+
+    #[test]
+    fn error_on_a_choice_made_of_a_condition_alone() {
+        assert_eq!(
+            codes(&in_node("-> [if $a]\n-> Leave")),
+            [DiagnosticKind::EmptyChoiceText.code()]
+        );
+    }
+
+    #[test]
+    fn error_on_a_choice_condition_that_is_never_closed() {
+        let (choice, condition) = choice("-> Leave [if $a");
+        assert_eq!(condition, None);
+        assert_eq!(choice.text.len(), 1);
+
+        assert_eq!(
+            codes(&in_node("-> Leave [if $a\n-> Stay")),
+            [DiagnosticKind::UnclosedBracket("[if".into()).code()]
+        );
+    }
+
+    #[test]
+    fn error_on_text_or_a_tag_after_a_choice_condition() {
+        for line in ["-> Leave [if $a] now", "-> Leave [if $a] #mood"] {
+            let src = in_node(&format!("{line}\n-> Stay"));
+            assert_eq!(
+                codes(&src),
+                [DiagnosticKind::UnclosedBracket("[if".into()).code()],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_on_a_choice_condition_that_is_not_a_bool() {
+        let (_, condition) = choice("-> Leave [if 1 + 2]");
+        assert_eq!(condition, None);
+
+        assert_eq!(
+            codes(&in_node("-> Leave [if 1 + 2]\n-> Stay")),
+            [DiagnosticKind::ConditionIsNotABool("int".into()).code()]
+        );
     }
 
     #[test]
@@ -2182,7 +2327,7 @@ Alice: Hi [in_line(1)] and [in_line_again(1, 2)]
     Alice: ok
 [while in_while()]
     Alice: ok
--> Take [in_choice()]
+-> Take [in_choice()] [if in_choice_condition()]
     Alice: [in_choice_body()]
 -> Leave
     Alice: ok
@@ -2200,6 +2345,7 @@ Alice: Hi [in_line(1)] and [in_line_again(1, 2)]
                 ("in_elif".to_owned(), 0),
                 ("in_while".to_owned(), 0),
                 ("in_choice".to_owned(), 0),
+                ("in_choice_condition".to_owned(), 0),
                 ("in_choice_body".to_owned(), 0),
             ]
         );

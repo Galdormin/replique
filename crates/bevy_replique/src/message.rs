@@ -92,6 +92,8 @@ pub struct DialogueChoice {
     pub text: String,
     /// The `#tags` of the choice.
     pub tags: Vec<Tag>,
+    /// If the choice is available
+    pub available: bool,
 }
 
 /// The dialogue reached its end.

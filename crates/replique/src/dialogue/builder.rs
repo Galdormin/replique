@@ -189,8 +189,8 @@ mod tests {
                 .iter()
                 .map(|t| ChoiceDef {
                     text: vec![TextPart::Text("...".into())],
-                    tags: vec![],
                     target: *t,
+                    ..Default::default()
                 })
                 .collect(),
         }

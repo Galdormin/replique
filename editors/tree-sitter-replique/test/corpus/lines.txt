@@ -170,3 +170,46 @@ Alice: Bonjour [$nom], il te reste [$joueur.pv] points.
           (variable)
           (number)))
       (text_chunk))))
+
+================================================================================
+Conditional choices
+================================================================================
+
+-> Oui ça va
+-> Non, je suis malade [if $player.is_sick]
+-> #mood Donner [$gold] pièces #line:aa00 [if $gold > 0 and not is_tired()]
+-> [if $a]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (choice
+    (text
+      (text_chunk)))
+  (choice
+    (text
+      (text_chunk))
+    (choice_condition
+      (attribute_expression
+        (variable)
+        (attribute))))
+  (choice
+    (text
+      (tag)
+      (text_chunk)
+      (interpolation
+        (variable))
+      (text_chunk)
+      (tag))
+    (choice_condition
+      (binary_expression
+        (binary_expression
+          (variable)
+          (number))
+        (unary_expression
+          (call
+            (function_name
+              (identifier)))))))
+  (choice
+    (choice_condition
+      (variable))))

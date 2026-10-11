@@ -1,0 +1,10 @@
+:= start
+-> Jamais fermée [if $a
+-> Du texte après [if $a] encore
+-> Un tag après [if $a] #mood
+-> Pas un booléen [if 1 + 2]
+-> Vide [if]
+-> [if $a]
+-> Deux fois [if $a] [if $b]
+-> Un mot qui commence pareil [iffy]
+---

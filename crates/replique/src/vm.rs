@@ -66,6 +66,8 @@ pub struct Choice {
     pub text: String,
     /// The `#tags` of the choice, in the order they are written.
     pub tags: Vec<Tag>,
+    /// If the choice is available
+    pub available: bool,
 }
 
 /// The text of the choice, without its tags.
@@ -129,9 +131,16 @@ pub enum ResumeEvent {
 
 /// What the [`DialogueVm`] is suspended on, and where each way out leads.
 enum SuspendedAt {
-    Line { next: StepId },
-    Command { next: StepId },
-    Choice { targets: Vec<StepId> },
+    Line {
+        next: StepId,
+    },
+    Command {
+        next: StepId,
+    },
+    /// Store if the choice was available in the beginning
+    Choice {
+        targets: Vec<(bool, StepId)>,
+    },
 }
 
 impl SuspendedAt {
@@ -140,12 +149,14 @@ impl SuspendedAt {
     fn resolve(&self, resume: &ResumeEvent) -> Result<StepId, VmError> {
         match (self, resume) {
             (Self::Line { next } | Self::Command { next }, ResumeEvent::Advance) => Ok(*next),
-            (Self::Choice { targets }, ResumeEvent::Select(i)) => {
-                targets.get(*i).copied().ok_or(VmError::ChoiceOutOfRange {
+            (Self::Choice { targets }, ResumeEvent::Select(i)) => match targets.get(*i).copied() {
+                None => Err(VmError::ChoiceOutOfRange {
                     index: *i,
                     count: targets.len(),
-                })
-            }
+                }),
+                Some((false, _)) => Err(VmError::ChoiceNotAvailable(*i)),
+                Some((_, step)) => Ok(step),
+            },
             _ => Err(VmError::WrongResumeEvent),
         }
     }
@@ -242,6 +253,12 @@ pub enum VmError {
     /// Error when evaluating expression
     #[error("EvalError: {0}")]
     ExprEvalError(#[from] EvalError),
+    /// No choice are available
+    #[error("No choice are available")]
+    NoAvailableChoice,
+    /// The selected choice was not available
+    #[error("Selected choice {0} is not available.")]
+    ChoiceNotAvailable(usize),
 }
 
 /// State of a [`DialogueVm`] between two calls.
@@ -402,25 +419,39 @@ impl DialogueVm {
                     then,
                     otherwise,
                 } => {
-                    cursor.step = match self.eval(host, condition)? {
-                        Value::Bool(true) => then,
-                        Value::Bool(false) => otherwise,
-                        other => {
-                            return Err(EvalError::NotACondition(other.vtype().to_string()).into());
-                        }
+                    cursor.step = match self.eval_condition(host, condition)? {
+                        true => then,
+                        false => otherwise,
                     };
                 }
                 StepKind::Choice { choices } => {
-                    let targets = choices.iter().map(|c| c.target).collect();
                     let choices = choices
                         .into_iter()
                         .map(|c| {
-                            Ok(Choice {
-                                text: self.render_text(host, c.text)?,
-                                tags: c.tags,
-                            })
+                            let available = match c.condition {
+                                Some(e) => self.eval_condition(host, e)?,
+                                None => true,
+                            };
+
+                            Ok((
+                                c.target,
+                                Choice {
+                                    text: self.render_text(host, c.text)?,
+                                    tags: c.tags,
+                                    available,
+                                },
+                            ))
                         })
-                        .collect::<Result<_, VmError>>()?;
+                        .collect::<Result<Vec<_>, VmError>>()?;
+
+                    if !choices.iter().any(|(_, c)| c.available) {
+                        return Err(VmError::NoAvailableChoice);
+                    }
+
+                    let (targets, choices): (Vec<_>, Vec<_>) = choices
+                        .into_iter()
+                        .map(|(step, c)| ((c.available, step), c))
+                        .unzip();
 
                     self.state = VmState::Suspended {
                         cursor,
@@ -477,6 +508,14 @@ impl DialogueVm {
             vars: &self.vars,
             host,
         })
+    }
+
+    /// Eval a condition based on [`Self::eval`] with Error handling if expr is not an condition
+    fn eval_condition<H: RepliqueHost>(&self, host: &mut H, expr: Expr) -> Result<bool, EvalError> {
+        match self.eval(host, expr)? {
+            Value::Bool(b) => Ok(b),
+            v => Err(EvalError::NotACondition(v.vtype().to_string())),
+        }
     }
 
     /// The text a line or a choice reads as, with every inline expression
@@ -591,13 +630,13 @@ mod tests {
             choices: vec![
                 ChoiceDef {
                     text: vec![TextPart::Text("go left".into())],
-                    tags: vec![],
                     target: left,
+                    ..Default::default()
                 },
                 ChoiceDef {
                     text: vec![TextPart::Text("go right".into())],
-                    tags: vec![],
                     target: right,
+                    ..Default::default()
                 },
             ],
         });
@@ -1378,10 +1417,12 @@ Alice: \\#rien n'est un tag ici
                 Choice {
                     text: "Attaquer Bob".to_owned(),
                     tags: vec![Tag::new("hostile"), Tag::with_value("cost", "3")],
+                    available: true,
                 },
                 Choice {
                     text: "Partir".to_owned(),
                     tags: vec![],
+                    available: true,
                 },
             ]
         );
@@ -1392,6 +1433,100 @@ Alice: \\#rien n'est un tag ici
             panic!("expected a line");
         };
         assert_eq!(tags, [Tag::new("fin")]);
+    }
+
+    /// A VM suspended on the choices of `start`, in a file whose `$sick` and
+    /// `$tired` are set to the given values.
+    fn conditional_choices(
+        sick: bool,
+        tired: bool,
+    ) -> (DialogueVm, Result<DialogueEvent, VmError>) {
+        let file = crate::RepliqueFile::from_source(format!(
+            ":= start
+[let $sick = {sick}]
+[let $tired = {tired}]
+-> Je suis malade [if $sick]
+    Alice: Soigne-toi.
+-> Je suis fatigué #mood:low [if $tired]
+    Alice: Repose-toi.
+---
+"
+        ));
+        let mut vm = DialogueVm::default();
+        let event = vm.start(file.dialogue.expect("the source compiles"), "start");
+        (vm, event)
+    }
+
+    #[test]
+    fn a_choice_is_available_when_its_condition_holds() {
+        let (_, event) = conditional_choices(false, true);
+        let DialogueEvent::Choices { choices } = event.unwrap() else {
+            panic!("expected a choice group");
+        };
+
+        // A choice that is not available is still listed, so the indexes
+        // do not move, and it keeps its text and its tags.
+        assert_eq!(
+            choices,
+            [
+                Choice {
+                    text: "Je suis malade".to_owned(),
+                    tags: vec![],
+                    available: false,
+                },
+                Choice {
+                    text: "Je suis fatigué".to_owned(),
+                    tags: vec![Tag::with_value("mood", "low")],
+                    available: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn select_follows_an_available_choice() {
+        let (mut vm, event) = conditional_choices(false, true);
+        event.unwrap();
+
+        let (_, text) = expect_line(vm.resume(ResumeEvent::Select(1)).unwrap());
+        assert_eq!(text, "Repose-toi.");
+    }
+
+    #[test]
+    fn error_on_select_of_an_unavailable_choice_and_keeps_the_choice_pending() {
+        let (mut vm, event) = conditional_choices(false, true);
+        event.unwrap();
+
+        let err = expect_err(vm.resume(ResumeEvent::Select(0)));
+        assert!(matches!(err, VmError::ChoiceNotAvailable(0)));
+
+        let (_, text) = expect_line(vm.resume(ResumeEvent::Select(1)).unwrap());
+        assert_eq!(text, "Repose-toi.");
+    }
+
+    #[test]
+    fn error_when_no_choice_is_available() {
+        let (_, event) = conditional_choices(false, false);
+        assert!(matches!(expect_err(event), VmError::NoAvailableChoice));
+    }
+
+    #[test]
+    fn error_on_a_choice_condition_that_is_not_a_bool() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start
+[let $n = 3]
+-> Partir [if $n]
+-> Rester
+---
+",
+        );
+        let mut vm = DialogueVm::default();
+
+        let err = expect_err(vm.start(file.dialogue.expect("the source compiles"), "start"));
+        assert!(matches!(
+            err,
+            VmError::ExprEvalError(EvalError::NotACondition(vtype)) if vtype == "int"
+        ));
     }
 
     /// The host is only reached when a step names a function: a dialogue that

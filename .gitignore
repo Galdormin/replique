@@ -1,4 +1,6 @@
 **/target
 *.snap.new
 
+extension.wasm
+
 .gmt
