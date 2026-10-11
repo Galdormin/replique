@@ -130,7 +130,7 @@ Selecting a choice that is not available, or an index outside of the group, is a
 
 ## End
 
-`DialogueFinished` is sent when the dialogue reaches the end of a node without jumping, or a `=> END`. It carries the entity of the runner rather than a token, since there is nothing left to resume.
+`DialogueFinished` is sent when the dialogue reaches the end of a node with no `<=>` to come back to, or a `=> END`. It carries the entity of the runner rather than a token, since there is nothing left to resume.
 
 ```rust
 # use bevy::prelude::*;

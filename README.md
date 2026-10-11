@@ -40,6 +40,7 @@ Caroline: Alice... You can start...
 | `-> text [if cond]`                  | A choice only available under a condition       |
 | `>> command(arg1, arg2)`             | A command to execute on the engine              |
 | `=> name`                            | Jump to the node `name`                         |
+| `<=> name`                           | Jump to the node `name`, and come back after it |
 | `[let $var = value]`                 | Set a variable                                  |
 | `[$var]`                             | Insert a value into the line                    |
 | `[if cond]`, `[elif cond]`, `[else]` | Play a block only under a condition             |

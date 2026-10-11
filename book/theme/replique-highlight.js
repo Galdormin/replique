@@ -31,13 +31,13 @@
             { className: 'attr', begin: /[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*:)/ },
         ];
 
-        // `:= name` and `=> name`
+        // `:= name`, `=> name` and `<=> name`
         const NODE = {
-            begin: /^[ \t]*(?::=|=>)(?=\s|$)/,
+            begin: /^[ \t]*(?::=|<=>|=>)(?=\s|$)/,
             end: /$/,
             returnBegin: true,
             contains: [
-                { className: 'keyword', begin: /:=|=>/ },
+                { className: 'keyword', begin: /:=|<=>|=>/ },
                 { className: 'section', begin: IDENT },
                 COMMENT,
             ],
