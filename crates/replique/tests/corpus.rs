@@ -167,6 +167,7 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                 let _ = writeln!(out, "{pad}choice-group {}", at(src, stmt.span));
                 for Choice {
                     text,
+                    condition,
                     tags,
                     body,
                     span,
@@ -180,6 +181,13 @@ fn render_stmts(out: &mut String, src: &Src, stmts: &[Stmt], depth: usize) {
                     );
                     for tag in tags {
                         let _ = writeln!(out, "{pad}    tag {} {}", tag.value, at(src, tag.span));
+                    }
+                    if let Some(condition) = condition {
+                        let _ = writeln!(
+                            out,
+                            "{pad}    if {:?}",
+                            &src.raw[condition.span.start..condition.span.end],
+                        );
                     }
                     render_stmts(out, src, body, depth + 2);
                 }
@@ -244,6 +252,7 @@ corpus!(
     loops,
     has,
     tags,
+    choice_conditions,
     // Degraded corpus
     unclosed,
     unclosed_eof,
@@ -266,4 +275,5 @@ corpus!(
     bad_loops,
     bad_has,
     bad_tags,
+    bad_choice_conditions,
 );

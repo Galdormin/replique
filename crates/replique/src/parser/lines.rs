@@ -175,7 +175,11 @@ fn strip_marker<'a>(text: &'a str, marker: &str, offset: usize) -> Option<Spanne
 /// Unlike the other markers, a blank is not required: `[let]` is an empty
 /// assignment, reported as such, rather than a line of text that happens to
 /// start with a bracket. `[letter` stays a line of text.
-fn strip_bracket<'a>(text: &'a str, marker: &str, offset: usize) -> Option<Spanned<&'a str>> {
+pub(super) fn strip_bracket<'a>(
+    text: &'a str,
+    marker: &str,
+    offset: usize,
+) -> Option<Spanned<&'a str>> {
     let rest = text.strip_prefix(marker)?;
     (!rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
         .then(|| Spanned::from_text(rest, offset + marker.len()))

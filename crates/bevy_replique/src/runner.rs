@@ -90,6 +90,7 @@ fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
                         index,
                         text: choice.text,
                         tags: choice.tags,
+                        available: choice.available,
                     })
                     .collect(),
             });

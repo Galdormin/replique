@@ -236,10 +236,13 @@ impl TryFrom<ast::TextPart> for TextPart {
 
 /// One entry of a [`StepKind::Choice`]: what the player reads, and where
 /// picking it leads.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct ChoiceDef {
     /// Text written after the `->`, as the parts it is made of.
     pub text: Vec<TextPart>,
+    /// Expression for the choice to be available.
+    /// None means always available
+    pub condition: Option<Expr>,
     /// The `#tags` of the choice, in the order they are written.
     pub tags: Vec<Tag>,
     /// First step of the body of the choice.

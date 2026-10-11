@@ -1,0 +1,24 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "Tu vas bien ?" @2:1 "Alice: Tu vas bien ?"
+  choice-group @3:1 "-> Oui ça va\n    Alice: Tant mieux.\n-> On fait aller [if $player.mood > 2 and not is_tired()]\n-> #mood Non, je suis malade #line:aa00 [if $player.is_sick]\n    Alice: Soigne-toi bien.\n-> Donner [$gold] pièces [if $gold > 0]\n-> Rien[if true]"
+    choice "Oui ça va" @3:1 "-> Oui ça va\n    Alice: Tant mieux."
+      line Alice "Tant mieux." @4:5 "Alice: Tant mieux."
+    choice "On fait aller" @5:1 "-> On fait aller [if $player.mood > 2 and not is_tired()]"
+      if "$player.mood > 2 and not is_tired()"
+    choice "Non, je suis malade" @6:1 "-> #mood Non, je suis malade #line:aa00 [if $player.is_sick]\n    Alice: Soigne-toi bien."
+      tag #mood @6:4 "#mood"
+      tag #line:aa00 @6:30 "#line:aa00"
+      if "$player.is_sick"
+      line Alice "Soigne-toi bien." @7:5 "Alice: Soigne-toi bien."
+    choice "Donner " [$gold] " pièces" @8:1 "-> Donner [$gold] pièces [if $gold > 0]"
+      if "$gold > 0"
+    choice "Rien" @9:1 "-> Rien[if true]"
+      if "true"
+
+== diagnostics ==
+(none)
