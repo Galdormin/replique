@@ -8,3 +8,5 @@ src = "src"
 git-repository-url = "https://github.com/Galdormin/replique"
 edit-url-template = "https://github.com/Galdormin/replique/edit/main/book/{path}"
 site-url = "/replique/"
+additional-js = ["theme/replique-highlight.js"]
+sidebar-header-nav = false
