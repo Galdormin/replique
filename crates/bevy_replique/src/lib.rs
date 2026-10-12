@@ -188,8 +188,8 @@
 //!
 //! # Examples
 //!
-//! The [`examples`] directory has three runnable ones, from a minimal UI to
-//! custom commands and functions:
+//! The [`examples`] directory has five runnable ones, from a minimal UI to
+//! custom commands, functions, features and several dialogues at once:
 //!
 //! ```sh
 //! cargo run -p bevy_replique --example bevy_simple

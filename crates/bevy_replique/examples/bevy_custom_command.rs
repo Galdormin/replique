@@ -1,21 +1,3 @@
-//! Portraits driven by the `>>` commands of `assets/dialogue/custom_command.rep`.
-//!
-//! The dialogue casts its own scene: `>> add_scene(Alice, Bob)` brings the
-//! characters in, `>> remove_scene(Alice)` sends them away, and each line is
-//! displayed next to the portrait of whoever speaks it.
-//!
-//! It is also where a custom argument type earns its keep. [`Character`]
-//! implements [`FromValue`], so a word the cast does not know is refused
-//! before it reaches the game, and [`CharactersParams`] derives
-//! [`RepliqueArgs`] so that a command takes as many characters as the writer
-//! put.
-//!
-//! Space advances a line. This dialogue has no choice to make.
-//!
-//! ```sh
-//! cargo run -p bevy_replique --example bevy_custom_command
-//! ```
-
 use bevy::prelude::*;
 use bevy_replique::prelude::*;
 

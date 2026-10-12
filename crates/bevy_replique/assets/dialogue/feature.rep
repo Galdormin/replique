@@ -1,0 +1,18 @@
+:= start
+Alice: I am carrying [Alice.Stats.gold] gold, and there are [party_size()] of us.
+<=> shape
+[let $rich = richest()]
+Bob: [$rich] is the one paying tonight then, with [$rich.Stats.gold] gold.
+Alice: Fine. Watch this.
+>> hurt(Alice, 8)
+Alice: ... that went badly.
+<=> shape
+Bob: Let's go home.
+---
+
+:= shape
+[if Alice has Wounded]
+    Alice: Sorry, I can't do that. I only have [Alice.Stats.hp] health points.
+[else]
+    Alice: And I am in good enough shape to face the dragon.
+---

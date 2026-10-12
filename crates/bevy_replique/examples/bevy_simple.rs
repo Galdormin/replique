@@ -1,11 +1,3 @@
-//! Minimal UI running `assets/dialogue/simple.rep`.
-//!
-//! Space advances a line, the number keys pick a choice.
-//!
-//! ```sh
-//! cargo run -p bevy_replique --example bevy_simple
-//! ```
-
 use bevy::prelude::*;
 use bevy_replique::prelude::*;
 
