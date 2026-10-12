@@ -36,6 +36,28 @@
 //! `false`. An unknown subject or an unknown feature stops the dialogue with
 //! an error, so that a typo does not quietly send it down the `[else]`.
 //!
+//! # The value of a feature
+//!
+//! A feature registered with
+//! [`register_replique_feature_value`](DialogueFeatureAppExt::register_replique_feature_value)
+//! can also be read: `Alice.Mana` is the component of the entity `Alice`, as
+//! [`IntoValue`] writes it.
+//!
+//! ```
+//! # use bevy::prelude::*;
+//! # use bevy_replique::prelude::*;
+//! #[derive(Component, Clone, RepliqueValue)]
+//! struct Mana(f64);
+//!
+//! # let mut app = App::new();
+//! // `[if Alice has Mana and Alice.Mana > 10.0]`
+//! app.register_replique_feature_value::<Mana>("Mana");
+//! ```
+//!
+//! Reading a feature its subject does not hold stops the dialogue with an
+//! error, so ask with `has` first. So does reading one that was registered
+//! without a value.
+//!
 //! # The same name in two dialogues
 //!
 //! A subject is visible to every dialogue unless it says otherwise. One that
@@ -57,6 +79,8 @@
 //! Two subjects of the same name left at the same level are ambiguous, and
 //! asking about them is an error.
 
+use std::sync::Arc;
+
 use bevy::{
     app::App,
     ecs::{
@@ -66,14 +90,14 @@ use bevy::{
         observer::On,
         resource::Resource,
         system::Query,
-        world::World,
+        world::{EntityRef, World},
     },
     log::warn,
     platform::collections::HashMap,
 };
-use replique::host::HostError;
+use replique::{dialogue::Value, host::HostError};
 
-use crate::runner::DialogueRunner;
+use crate::{call::args::IntoValue, runner::DialogueRunner};
 
 /// The name a dialogue knows an entity by.
 ///
@@ -147,15 +171,20 @@ pub enum SubjectScope {
     Only(#[entities] Vec<Entity>),
 }
 
+/// Reads the value of a feature off an entity, `None` when the entity does not hold it.
+type FeatureReader = Arc<dyn Fn(EntityRef) -> Option<Value> + Send + Sync>;
+
 /// Indentify a feature in the World
-///
-/// Only the [`ComponentId`] is kept for now.
-#[derive(Clone, Debug)]
-pub(crate) struct Feature(ComponentId);
+#[derive(Clone)]
+pub(crate) struct Feature {
+    id: ComponentId,
+    /// `None` for a feature registered without a value.
+    read: Option<FeatureReader>,
+}
 
 impl Feature {
     fn component_id(&self) -> ComponentId {
-        self.0
+        self.id
     }
 }
 
@@ -186,22 +215,58 @@ pub trait DialogueFeatureAppExt {
     /// app.register_replique_feature::<Mana>("magic");
     /// ```
     fn register_replique_feature<C: Component>(&mut self, name: impl Into<String>) -> &mut Self;
+
+    /// Same as [`register_replique_feature`](Self::register_replique_feature),
+    /// for a component dialogues can also read the value: `Alice.Mana` is the
+    /// component of the entity named `Alice`, as [`IntoValue`] writes it.
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_replique::prelude::*;
+    /// #[derive(Component, Clone, RepliqueValue)]
+    /// struct Mana(f64);
+    ///
+    /// # let mut app = App::new();
+    /// // `[if Alice has Mana and Alice.Mana > 10.0]`
+    /// app.register_replique_feature_value::<Mana>("Mana");
+    /// ```
+    ///
+    /// Reading the feature of a subject that does not hold it is an error:
+    /// `has` is how a dialogue asks first.
+    fn register_replique_feature_value<C>(&mut self, name: impl Into<String>) -> &mut Self
+    where
+        C: Component + Clone + IntoValue;
 }
 
 impl DialogueFeatureAppExt for App {
     fn register_replique_feature<C: Component>(&mut self, name: impl Into<String>) -> &mut Self {
-        let name = name.into();
-        let world = self.world_mut();
-        let id = world.register_component::<C>();
-
-        let mut registry = world.get_resource_or_init::<DialogueFeatureRegistry>();
-        if let Some(previous) = registry.features.insert(name.clone(), Feature(id))
-            && previous.component_id() != id
-        {
-            warn!("The feature {name} was already registered for another component.");
-        }
-
+        register::<C>(self, name.into(), None);
         self
+    }
+
+    fn register_replique_feature_value<C>(&mut self, name: impl Into<String>) -> &mut Self
+    where
+        C: Component + Clone + IntoValue,
+    {
+        let read: FeatureReader =
+            Arc::new(|entity: EntityRef| entity.get::<C>().cloned().map(IntoValue::into_value));
+
+        register::<C>(self, name.into(), Some(read));
+        self
+    }
+}
+
+/// Puts the component `C` in the registry under `name`, with what reads its
+/// value when it has one.
+fn register<C: Component>(app: &mut App, name: String, read: Option<FeatureReader>) {
+    let world = app.world_mut();
+    let id = world.register_component::<C>();
+
+    let mut registry = world.get_resource_or_init::<DialogueFeatureRegistry>();
+    if let Some(previous) = registry.features.insert(name.clone(), Feature { id, read })
+        && previous.component_id() != id
+    {
+        warn!("The feature {name} was already registered for another component.");
     }
 }
 
@@ -220,6 +285,32 @@ pub(crate) fn has_feature(
     let entity = resolve_subject(world, runner, subject)?;
 
     Ok(world.entity(entity).contains_id(id.component_id()))
+}
+
+/// The value of the component registered as `feature`, on the entity `runner`
+/// knows as `subject`.
+pub(crate) fn feature(
+    world: &mut World,
+    runner: Entity,
+    subject: &str,
+    feature: &str,
+) -> Result<Value, HostError> {
+    let registered = world
+        .get_resource::<DialogueFeatureRegistry>()
+        .and_then(|registry| registry.features.get(feature).cloned())
+        .ok_or_else(|| HostError::UnknownFeature(feature.to_owned()))?;
+
+    let entity = resolve_subject(world, runner, subject)?;
+
+    let read = registered.read.ok_or_else(|| HostError::Failed {
+        name: feature.to_owned(),
+        message: "this feature was registered without a value to read".to_owned(),
+    })?;
+
+    read(world.entity(entity)).ok_or_else(|| HostError::FeatureNotOnSubject {
+        feature: feature.to_owned(),
+        subject: subject.to_owned(),
+    })
 }
 
 /// The entity `runner` knows as `name`.
@@ -306,11 +397,22 @@ mod tests {
     #[derive(Component)]
     struct Mana(#[allow(unused)] f32);
 
+    /// A feature with a value to read.
+    #[derive(Component, Clone)]
+    struct Gold(i64);
+
+    impl IntoValue for Gold {
+        fn into_value(self) -> Value {
+            Value::Int(self.0)
+        }
+    }
+
     fn app() -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), RepliquePlugin));
         app.register_replique_feature::<Angry>("Angry")
-            .register_replique_feature::<Mana>("Mana");
+            .register_replique_feature::<Mana>("Mana")
+            .register_replique_feature_value::<Gold>("Gold");
         app
     }
 
@@ -369,6 +471,57 @@ mod tests {
             .spawn((RepliqueSubject::new("Alice"), Mana(0.0)));
 
         assert_eq!(has(&mut app, runner, "Alice", "Mana"), Answer::Yes);
+    }
+
+    #[test]
+    fn a_feature_with_a_value_gives_what_its_component_holds() {
+        let mut app = app();
+        let runner = runner(&mut app);
+        let alice = app
+            .world_mut()
+            .spawn((RepliqueSubject::new("Alice"), Gold(12)))
+            .id();
+
+        assert_eq!(has(&mut app, runner, "Alice", "Gold"), Answer::Yes);
+        assert_eq!(
+            feature(app.world_mut(), runner, "Alice", "Gold").unwrap(),
+            Value::Int(12)
+        );
+
+        // Read off the world each time, so it follows the component.
+        app.world_mut().entity_mut(alice).insert(Gold(3));
+        assert_eq!(
+            feature(app.world_mut(), runner, "Alice", "Gold").unwrap(),
+            Value::Int(3)
+        );
+    }
+
+    #[test]
+    fn error_on_a_value_that_cannot_be_read() {
+        let mut app = app();
+        let runner = runner(&mut app);
+        app.world_mut()
+            .spawn((RepliqueSubject::new("Alice"), Angry));
+
+        // The subject does not hold it.
+        assert!(matches!(
+            feature(app.world_mut(), runner, "Alice", "Gold"),
+            Err(HostError::FeatureNotOnSubject { feature, subject })
+                if feature == "Gold" && subject == "Alice"
+        ));
+        // Registered without a value, held or not.
+        assert!(matches!(
+            feature(app.world_mut(), runner, "Alice", "Angry"),
+            Err(HostError::Failed { name, .. }) if name == "Angry"
+        ));
+        assert!(matches!(
+            feature(app.world_mut(), runner, "Alice", "Sleepy"),
+            Err(HostError::UnknownFeature(name)) if name == "Sleepy"
+        ));
+        assert!(matches!(
+            feature(app.world_mut(), runner, "Bob", "Gold"),
+            Err(HostError::UnknownSubject(name)) if name == "Bob"
+        ));
     }
 
     #[test]
@@ -659,6 +812,31 @@ mod tests {
 
         app.world_mut().entity_mut(alice).insert(Angry);
         assert_eq!(first_lines(&mut app, dialogue), ["Furieuse."]);
+    }
+
+    #[test]
+    fn a_dialogue_reads_the_value_of_a_feature() {
+        let mut app = app();
+        let dialogue = add_dialogue(
+            &mut app,
+            ":= start
+[if Alice has Gold and Alice.Gold >= 10]
+    Alice: Riche de [Alice.Gold] pièces.
+[else]
+    Alice: Pauvre.
+---
+",
+        );
+        let alice = app.world_mut().spawn(RepliqueSubject::new("Alice")).id();
+
+        // Without the component, the `and` stops before the value is read.
+        assert_eq!(first_lines(&mut app, dialogue.clone()), ["Pauvre."]);
+
+        app.world_mut().entity_mut(alice).insert(Gold(3));
+        assert_eq!(first_lines(&mut app, dialogue.clone()), ["Pauvre."]);
+
+        app.world_mut().entity_mut(alice).insert(Gold(12));
+        assert_eq!(first_lines(&mut app, dialogue), ["Riche de 12 pièces."]);
     }
 
     #[test]
