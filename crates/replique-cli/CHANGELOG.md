@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/Galdormin/replique/compare/replique-cli-v0.2.0...replique-cli-v0.3.0) - 2026-10-12
+
+### Other
+
+- update README + bump
+- update to bevy 0.20
+- release v0.2.0
+
 ## [0.2.0](https://github.com/Galdormin/replique/compare/replique-cli-v0.1.1...replique-cli-v0.2.0) - 2026-10-08
 
 ### Added

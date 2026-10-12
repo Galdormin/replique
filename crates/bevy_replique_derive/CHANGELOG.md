@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/Galdormin/replique/compare/bevy_replique_derive-v0.2.0...bevy_replique_derive-v0.3.0) - 2026-10-12
+
+### Other
+
+- update README + bump
+- *(replique)* add <=> and RETURN to book
+- *(book)* add bevy book
+- *(book)* add syntax to book
+- release v0.2.0
+
 ## [0.2.0](https://github.com/Galdormin/replique/compare/bevy_replique_derive-v0.1.1...bevy_replique_derive-v0.2.0) - 2026-10-08
 
 ### Added
