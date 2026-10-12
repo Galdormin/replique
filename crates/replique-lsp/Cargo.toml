@@ -1,6 +1,6 @@
 [package]
 name = "replique-lsp"
-description = "Langage server for Replique"
+description = "Language server for Replique"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
