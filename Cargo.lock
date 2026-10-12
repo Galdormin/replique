@@ -1511,7 +1511,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_replique"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bevy",
  "bevy_replique_derive",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_replique_derive"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bevy",
  "bevy_replique",
@@ -4862,7 +4862,7 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "replique"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "insta",
  "logos",
@@ -4875,7 +4875,7 @@ dependencies = [
 
 [[package]]
 name = "replique-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4885,7 +4885,7 @@ dependencies = [
 
 [[package]]
 name = "replique-lsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "dashmap",
  "replique",

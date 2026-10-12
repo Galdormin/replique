@@ -97,7 +97,7 @@ The same report is given by `replique check` from the command line and by the la
 
 ## Examples
 
-The repository has three [runnable examples](https://github.com/Galdormin/replique/tree/main/crates/bevy_replique/examples), from a minimal UI to custom commands and functions:
+The repository has five [runnable examples](https://github.com/Galdormin/replique/tree/main/crates/bevy_replique/examples), from a minimal UI to custom commands, functions, features and several dialogues at once:
 
 ```sh
 cargo run -p bevy_replique --example bevy_simple

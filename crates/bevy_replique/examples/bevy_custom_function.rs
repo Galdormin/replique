@@ -1,18 +1,3 @@
-//! Characters read from the world by the expressions of
-//! `assets/dialogue/custom_function.rep`.
-//!
-//! [`Stats`] comes back as a dict, so the dialogue reads `$stat.hp` the same
-//! way it would read any other. A character nobody spawned makes `get_stat`
-//! answer an error.
-//!
-//! Space advances a line. This dialogue has no choice to make.
-//!
-//! ```sh
-//! cargo run -p bevy_replique --example bevy_custom_function
-//! ```
-//!
-//! [`add_dialogue_function_named`]: bevy_replique::function::DialogueFunctionAppExt::add_dialogue_function_named
-
 use bevy::prelude::*;
 use bevy_replique::prelude::*;
 

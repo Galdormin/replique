@@ -1,13 +1,16 @@
 # Replique LSP
 
-Language server for the [Replique](https://github.com/Galdormin/replique) dialogue format. Installs a single binary, `replique-lsp`, which speaks LSP over stdio.
+[![Crates.io](https://img.shields.io/crates/v/replique-lsp.svg)](https://crates.io/crates/replique-lsp)
+[![Book](https://img.shields.io/badge/book-read-blue)](https://galdormin.github.io/replique/)
+[![License](https://img.shields.io/crates/l/replique-lsp.svg)](#license)
+
+Language server for the [Replique](https://github.com/Galdormin/replique) dialogue format. Installs a single binary, `replique-lsp`, which speaks LSP over stdio and gives an editor live diagnostics and completion.
 
 ```sh
 cargo install replique-lsp
 ```
 
-It parses with the same crate as `replique check`, so what the editor underlines
-is what CI will fail on.
+It parses with the same crate as `replique check`, so what the editor underlines is what CI will fail on.
 
 ## What it does
 
@@ -43,10 +46,10 @@ Hover, go-to-definition, rename, document symbols, formatting and semantic token
 
 ## Editors
 
-| Editor                   | Status                                                        |
-| ------------------------ | ------------------------------------------------------------- |
-| [Zed](../../editors/zed) | Extension in this repo, not published to the Zed registry yet |
-| Anything else            | Works by pointing an LSP client at the `replique-lsp` binary  |
+| Editor                   | Status                                                                                  |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| [Zed](../../editors/zed) | Extension in this repo, with syntax highlighting, not published to the Zed registry yet |
+| Anything else            | Works by pointing an LSP client at the `replique-lsp` binary                            |
 
 ## License
 

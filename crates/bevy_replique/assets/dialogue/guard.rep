@@ -1,0 +1,8 @@
+:= start
+Guard: Halt! I am the guard of the [Guard.Door] door.
+[if Guard.Door == East]
+    Guard: I get the sunrise, at least.
+[else]
+    Guard: I get the sunset, at least.
+Guard: Nobody gets through at night.
+---

@@ -1,6 +1,10 @@
 # Replique CLI
 
-Command-line tools for the [Replique](https://github.com/Galdormin/replique) dialogue format. Installs a single binary, `replique`.
+[![Crates.io](https://img.shields.io/crates/v/replique-cli.svg)](https://crates.io/crates/replique-cli)
+[![Book](https://img.shields.io/badge/book-read-blue)](https://galdormin.github.io/replique/)
+[![License](https://img.shields.io/crates/l/replique-cli.svg)](#license)
+
+Command-line tools for the [Replique](https://github.com/Galdormin/replique) dialogue format. Installs a single binary, `replique`, whose `check` command lints dialogue files from a terminal or in CI.
 
 ```sh
 cargo install replique-cli
@@ -25,8 +29,7 @@ error[jump-unknown-node]: jump to unknown node `nope`
 1 error(s), 0 warning(s) in 1 file(s)
 ```
 
-`--format short` prints one line per diagnostic, which is easier to grep and to
-parse from an editor:
+`--format short` prints one line per diagnostic, which is easier to grep and to parse from an editor:
 
 ```
 assets/dialogue/simple.rep:3:1: error[jump-unknown-node]: jump to unknown node `nope`
@@ -40,8 +43,7 @@ assets/dialogue/simple.rep:3:1: error[jump-unknown-node]: jump to unknown node `
 | `-q`, `--quiet`                  | Print nothing, report through the exit code |
 | `--schema <path>`                | Also check against a `replique.toml`        |
 
-Diagnostics and the summary go to stderr, like any other linter. Exit code is `0` when clean, `1` when a file has errors, `2` when the command
-itself failed — an unreadable path, for instance.
+Diagnostics and the summary go to stderr, like any other linter. Exit code is `0` when clean, `1` when a file has errors, `2` when the command itself failed — an unreadable path, for instance.
 
 ### Checking against the schema of the project
 
@@ -92,8 +94,7 @@ warning[wrong-arity]: `change_mood` expects 2 arguments, got 1
 | `unknown-function` | A function is neither a builtin nor in `[functions]`           |
 | `wrong-arity`      | A command or a function is given the wrong number of arguments |
 
-All of these are warnings, so they do not change the exit code unless `--warnings-as-errors` is given.
-A `replique.toml` that is missing or cannot be read is a failure of the command itself, and exits with `2`.
+All of these are warnings, so they do not change the exit code unless `--warnings-as-errors` is given. A `replique.toml` that is missing or cannot be read is a failure of the command itself, and exits with `2`.
 
 The schema is only used when `--schema` names it: unlike `replique-lsp`, `check` does not look for a `replique.toml` on its own.
 
