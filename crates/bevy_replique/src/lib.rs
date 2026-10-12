@@ -174,7 +174,8 @@
 //!
 //! A name the game was never given stops the dialogue with an error instead
 //! of answering `false`, so that a typo does not quietly pick the `[else]`.
-//! See [`call::features`] for subjects that only some dialogues can see.
+//! See [`call::features`] for subjects that only some dialogues can see, and
+//! for features whose value a dialogue can read, as in `Alice.Mana`.
 //!
 //! # Modules
 //!

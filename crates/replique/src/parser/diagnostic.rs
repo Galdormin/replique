@@ -425,7 +425,9 @@ impl fmt::Display for DiagnosticKind {
                 write!(f, "`{marker}` found while no `[if]` is open")
             }
             BranchAfterElse(marker) => write!(f, "`{marker}` found after `[else]`"),
-            AttributeOnNonVariable => f.write_str("found `.attr` on non variable or function"),
+            AttributeOnNonVariable => {
+                f.write_str("found `.attr` on what is not a variable, a function or a name")
+            }
             UnclosedDict => f.write_str("dict is never closed, expected `} at the end`"),
             ExpectedColon => f.write_str("expected `:` after a key in dict definition"),
             ExpectedKey => f.write_str("expected a str as a key in dict definition"),

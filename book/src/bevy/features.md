@@ -34,6 +34,40 @@ From there `Alice has Angry` is true exactly while that entity holds an `Angry`.
 
 Names are matched as they are written, case included.
 
+## Reading the value of a feature
+
+A feature can also hold a value, read with a `.` after the name of the subject:
+
+```replique
+:= start
+[if Alice has Mana and Alice.Mana >= 10.0]
+    Alice: I have [Alice.Mana] mana, enough for a spell.
+[else]
+    Alice: I am out of mana.
+---
+```
+
+Such a feature is registered with `register_replique_feature_value`, which asks the component to be `Clone` and `IntoValue`. `#[derive(RepliqueValue)]` already implement `IntoValue`:
+
+```rust
+# use bevy::prelude::*;
+# use bevy_replique::prelude::*;
+#[derive(Component, Clone, RepliqueValue)]
+struct Mana(f64);
+
+fn spawn_alice(mut commands: Commands) {
+    commands.spawn((RepliqueSubject::new("Alice"), Mana(12.0)));
+}
+
+# let mut app = App::new();
+app.register_replique_feature_value::<Mana>("Mana")
+    .add_systems(Startup, spawn_alice);
+```
+
+The value is read off the component each time the dialogue asks, so it follows the game. A struct with named fields comes as a dict, read further with another `.`: `Alice.Stats.hp`.
+
+Reading the feature of a subject that does not hold it stops the dialogue with an error.
+
 ## Unknown names
 
 A subject or a feature the game was never given is a mistake in the dialogue, not a `false`: it stops the dialogue with an error. A typo therefore does not quietly send the player down the `[else]`.

@@ -174,7 +174,8 @@
 //! A `[function(...)]` *answers* something, and never suspends. The VM resolves
 //! it through the [`RepliqueHost`] the caller passes to
 //! [`DialogueVm::start_with`] and [`DialogueVm::resume_with`]. The same host
-//! answers `has` when it is asked of a subject rather than of a dictionary:
+//! answers `has` when it is asked of a subject rather than of a dictionary,
+//! and gives the value of a feature read with a `.`, as in `Alice.Mood`:
 //!
 //! ```rust
 //! use std::collections::HashMap;
@@ -205,6 +206,14 @@
 //!         match self.moods.get(subject) {
 //!             Some(mood) => Ok(*mood == name),
 //!             None => Err(HostError::UnknownSubject(subject.into())),
+//!         }
+//!     }
+//!
+//!     fn feature(&mut self, subject: &str, name: &str) -> Result<Value, HostError> {
+//!         match (self.moods.get(subject), name) {
+//!             (Some(mood), "Mood") => Ok(Value::String((*mood).into())),
+//!             (Some(_), _) => Err(HostError::UnknownFeature(name.into())),
+//!             (None, _) => Err(HostError::UnknownSubject(subject.into())),
 //!         }
 //!     }
 //! }
