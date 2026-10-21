@@ -56,6 +56,8 @@ struct LineText;
 #[derive(Component)]
 struct ChoicesText;
 
+type ChoiceOnly = (With<ChoicesText>, Without<LineText>);
+
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -139,7 +141,7 @@ fn show_line(
     mut lines: MessageReader<DialogueLine>,
     mut waiting: ResMut<Waiting>,
     line_text: Single<(Entity, &mut Text), With<LineText>>,
-    choices_text: Single<(Entity, &mut Text), (With<ChoicesText>, Without<LineText>)>,
+    choices_text: Single<(Entity, &mut Text), ChoiceOnly>,
 ) {
     let (line_root, mut line_prefix) = line_text.into_inner();
     let (choices_root, mut choices_prefix) = choices_text.into_inner();
@@ -194,7 +196,7 @@ fn show_finished(
     mut finished: MessageReader<DialogueFinished>,
     mut waiting: ResMut<Waiting>,
     line_text: Single<(Entity, &mut Text), With<LineText>>,
-    choices_text: Single<(Entity, &mut Text), (With<ChoicesText>, Without<LineText>)>,
+    choices_text: Single<(Entity, &mut Text), ChoiceOnly>,
 ) {
     let (line_root, mut line_prefix) = line_text.into_inner();
     let (choices_root, mut choices_prefix) = choices_text.into_inner();
