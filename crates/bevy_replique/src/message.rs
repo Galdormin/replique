@@ -17,6 +17,7 @@
 use bevy::{ecs::entity::Entity, prelude::Message};
 use replique::{
     dialogue::{Tag, Value},
+    parser::Markup,
     vm::ResumeEvent,
 };
 
@@ -41,6 +42,8 @@ pub struct DialogueLine {
     pub text: String,
     /// The `#tags` of the line.
     pub tags: Vec<Tag>,
+    /// The `<markup>` of the line.
+    pub markups: Vec<Markup>,
 }
 
 /// The dialogue reached a `>>` command.
@@ -92,6 +95,8 @@ pub struct DialogueChoice {
     pub text: String,
     /// The `#tags` of the choice.
     pub tags: Vec<Tag>,
+    /// The `<markup>` of the choice.
+    pub markups: Vec<Markup>,
     /// If the choice is available
     pub available: bool,
 }

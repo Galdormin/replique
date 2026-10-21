@@ -145,8 +145,9 @@ pub(crate) fn split_tags(text: Spanned<&str>) -> (Spanned<&str>, Vec<Spanned<Tag
     (rest, tags)
 }
 
+/// `\\#` and `\\<` written as the plain `#` and `<` they stand for.
 pub(crate) fn unescape(text: &str) -> String {
-    text.replace("\\#", "#")
+    text.replace("\\#", "#").replace("\\<", "<")
 }
 
 #[cfg(test)]

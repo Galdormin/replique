@@ -44,7 +44,7 @@ use thiserror::Error;
 use crate::{
     builtins::lookup,
     dialogue::{
-        Dialogue, DialogueNode, NodeName, Step, StepId, StepKind, Tag, TextPart, Value,
+        Dialogue, DialogueNode, Markup, NodeName, Step, StepId, StepKind, Tag, TextPart, Value,
         expr::{EvalError, Expr},
     },
     host::{HostError, NoHost, RepliqueHost},
@@ -66,6 +66,9 @@ pub struct Choice {
     pub text: String,
     /// The `#tags` of the choice, in the order they are written.
     pub tags: Vec<Tag>,
+    /// The `<markup>` of the choice, in the order they are opened, each with
+    /// the part of [`text`](Self::text) it covers.
+    pub markups: Vec<Markup>,
     /// If the choice is available
     pub available: bool,
 }
@@ -91,6 +94,9 @@ pub enum DialogueEvent {
         text: String,
         /// The `#tags` of the line, in the order they are written.
         tags: Vec<Tag>,
+        /// The `<markup>` of the line, in the order they are opened, each with
+        /// the part of `text` it covers.
+        markups: Vec<Markup>,
     },
     /// A command for the host to interpret, such as `>> add_scene(Alice)`.
     /// Meaning and arguments are entirely up to the host. Resume with
@@ -388,7 +394,7 @@ impl DialogueVm {
                 StepKind::Say { line, next } => {
                     // Rendered before the state moves: an inline expression
                     // that does not evaluate must leave the VM where it was.
-                    let text = self.render_text(host, line.text)?;
+                    let (text, markups) = self.render_text(host, line.text)?;
 
                     self.state = VmState::Suspended {
                         cursor,
@@ -398,6 +404,7 @@ impl DialogueVm {
                         speaker: line.speaker,
                         text,
                         tags: line.tags,
+                        markups,
                     });
                 }
                 StepKind::Command { command, next } => {
@@ -452,11 +459,13 @@ impl DialogueVm {
                                 None => true,
                             };
 
+                            let (text, markups) = self.render_text(host, c.text)?;
                             Ok((
                                 c.target,
                                 Choice {
-                                    text: self.render_text(host, c.text)?,
+                                    text,
                                     tags: c.tags,
+                                    markups,
                                     available,
                                 },
                             ))
@@ -561,8 +570,10 @@ impl DialogueVm {
         &self,
         host: &mut H,
         parts: Vec<TextPart>,
-    ) -> Result<String, EvalError> {
+    ) -> Result<(String, Vec<Markup>), EvalError> {
         let mut out = String::new();
+        let mut markups: Vec<Markup> = vec![];
+        let mut open = vec![];
 
         for part in parts {
             match part {
@@ -571,10 +582,27 @@ impl DialogueVm {
                     let val = self.eval(host, expr)?;
                     out.push_str(&val.to_string())
                 }
+                TextPart::Open(data) => {
+                    open.push(markups.len());
+                    markups.push(Markup::new(data, out.len()..out.len()));
+                }
+                TextPart::Close => {
+                    if let Some(at) = open.pop() {
+                        markups[at].range.end = out.len();
+                    }
+                }
+                TextPart::Marker(data) => markups.push(Markup::new(data, out.len()..out.len())),
             }
         }
 
-        Ok(out)
+        // The parser refuses a markup that is never closed: one left open
+        // here could only come from a dialogue built by hand, and covers the
+        // rest of the text.
+        for at in open {
+            markups[at].range.end = out.len();
+        }
+
+        Ok((out, markups))
     }
 
     /// Walks `attrs` down the dicts held by the variable `name`, and writes
@@ -1366,6 +1394,7 @@ Bob: [$who has happy]
             speaker,
             text,
             tags,
+            ..
         } = event
         {
             lines.push((speaker, text, tags));
@@ -1454,11 +1483,13 @@ Alice: \\#rien n'est un tag ici
                 Choice {
                     text: "Attaquer Bob".to_owned(),
                     tags: vec![Tag::new("hostile"), Tag::with_value("cost", "3")],
+                    markups: vec![],
                     available: true,
                 },
                 Choice {
                     text: "Partir".to_owned(),
                     tags: vec![],
+                    markups: vec![],
                     available: true,
                 },
             ]
@@ -1509,11 +1540,13 @@ Alice: \\#rien n'est un tag ici
                 Choice {
                     text: "Je suis malade".to_owned(),
                     tags: vec![],
+                    markups: vec![],
                     available: false,
                 },
                 Choice {
                     text: "Je suis fatigué".to_owned(),
                     tags: vec![Tag::with_value("mood", "low")],
+                    markups: vec![],
                     available: true,
                 },
             ]
@@ -1886,6 +1919,97 @@ Bob: [Bob.mana]
             err,
             VmError::ExprEvalError(EvalError::HostError(HostError::FeatureNotOnSubject { .. }))
         ));
+    }
+
+    /// The text and the markups of the only line of `src`, each markup as
+    /// its name and the piece of text it covers.
+    fn markups_of(src: &str) -> (String, Vec<(String, String)>) {
+        let file = crate::RepliqueFile::from_source(src);
+        assert!(!file.has_errors(), "{src}");
+
+        let mut vm = DialogueVm::default();
+        let DialogueEvent::Say { text, markups, .. } =
+            vm.start(file.dialogue.unwrap(), "start").unwrap()
+        else {
+            panic!("expected a line");
+        };
+
+        let covered = markups
+            .iter()
+            .map(|markup| (markup.name.clone(), text[markup.range.clone()].to_owned()))
+            .collect();
+        (text, covered)
+    }
+
+    #[test]
+    fn a_markup_covers_the_text_rendered_between_its_open_and_its_close() {
+        let (text, markups) = markups_of(
+            ":= start\n[let $name = \"Léa\"]\nAlice: <b>Bonjour [$name]</b>, <pause=0.5/>ça va ?\n---\n",
+        );
+
+        assert_eq!(text, "Bonjour Léa, ça va ?");
+        assert_eq!(
+            markups,
+            [
+                ("b".to_owned(), "Bonjour Léa".to_owned()),
+                ("pause".to_owned(), String::new()),
+            ]
+        );
+    }
+
+    #[test]
+    fn markups_come_in_the_order_they_are_opened() {
+        let (_, markups) = markups_of(":= start\nAlice: <b><i>x</i>y</b> <u>z</u>\n---\n");
+
+        assert_eq!(
+            markups,
+            [
+                ("b".to_owned(), "xy".to_owned()),
+                ("i".to_owned(), "x".to_owned()),
+                ("u".to_owned(), "z".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_value_that_looks_like_a_markup_stays_text() {
+        let (text, markups) =
+            markups_of(":= start\n[let $v = \"<b>\"]\nAlice: [$v] I <3 you\n---\n");
+
+        assert_eq!(text, "<b> I <3 you");
+        assert!(markups.is_empty());
+    }
+
+    #[test]
+    fn a_markup_keeps_its_value_and_attributes() {
+        let file = crate::RepliqueFile::from_source(
+            ":= start\nAlice: <wave speed=10 amplitude=2>Hi</wave><pause=0.5/>\n---\n",
+        );
+        let mut vm = DialogueVm::default();
+        let DialogueEvent::Say { markups, .. } = vm.start(file.dialogue.unwrap(), "start").unwrap()
+        else {
+            panic!("expected a line");
+        };
+
+        assert_eq!(markups[0].attr("speed"), Some("10"));
+        assert_eq!(markups[0].attr("amplitude"), Some("2"));
+        assert_eq!(markups[0].value, None);
+        assert_eq!(markups[1].value.as_deref(), Some("0.5"));
+        assert_eq!(markups[1].range, 2..2);
+    }
+
+    #[test]
+    fn a_choice_has_its_markups() {
+        let file = crate::RepliqueFile::from_source(":= start\n-> <b>Pay</b> now\n-> Leave\n---\n");
+        let mut vm = DialogueVm::default();
+        let DialogueEvent::Choices { choices } = vm.start(file.dialogue.unwrap(), "start").unwrap()
+        else {
+            panic!("expected choices");
+        };
+
+        assert_eq!(choices[0].text, "Pay now");
+        assert_eq!(&choices[0].text[choices[0].markups[0].range.clone()], "Pay");
+        assert!(choices[1].markups.is_empty());
     }
 
     /// The host is only reached when a step names a function: a dialogue that

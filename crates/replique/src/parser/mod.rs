@@ -6,10 +6,12 @@ pub mod ast;
 pub mod diagnostic;
 pub(crate) mod expr;
 mod lines;
+pub mod markups;
 mod tags;
 pub mod validation;
 
 pub use ast::parse;
+pub use markups::{MarkerData, Markup};
 pub use tags::Tag;
 
 pub const END_NODE_NAME: &str = "END";

@@ -60,12 +60,14 @@ fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
             speaker,
             text,
             tags,
+            markups,
         } => {
             world.write_message(DialogueLine {
                 token,
                 speaker,
                 text,
                 tags,
+                markups,
             });
         }
         DialogueEvent::Command {
@@ -90,6 +92,7 @@ fn emit(world: &mut World, token: DialogueToken, event: DialogueEvent) {
                         index,
                         text: choice.text,
                         tags: choice.tags,
+                        markups: choice.markups,
                         available: choice.available,
                     })
                     .collect(),

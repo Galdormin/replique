@@ -1,0 +1,19 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  set name "\"Léa\"" @2:1 "[let $name = \"Léa\"]"
+  line Alice <b> "Bonjour " [$name] </b> ", " <pause=0.5/> "ça va ?" @3:1 "Alice: #happy <b>Bonjour [$name]</b>, <pause=0.5/>ça va ? #sound:a01"
+    tag #happy @3:8 "#happy"
+    tag #sound:a01 @3:60 "#sound:a01"
+  line Bob <wave speed=10 amplitude=2> "Très " <i> "bien" </i> </wave> ", merci." @4:1 "Bob: <wave speed=10 amplitude=2>Très <i>bien</i></wave>, merci."
+  line Bob "I <3 you, a < b, and <b> is plain text." @5:1 "Bob: I <3 you, a < b, and \\<b> is plain text."
+  choice-group @6:1 "-> <color=#ff0000>Partir</color> [if true]\n-> <link=\"the old mill\">Le moulin</link>"
+    choice <color=#ff0000> "Partir" </color> @6:1 "-> <color=#ff0000>Partir</color> [if true]"
+      if "true"
+    choice <link="the old mill"> "Le moulin" </link> @7:1 "-> <link=\"the old mill\">Le moulin</link>"
+
+== diagnostics ==
+(none)

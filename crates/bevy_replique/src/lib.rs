@@ -223,7 +223,7 @@ pub mod prelude {
     pub use bevy_replique_derive::{
         RepliqueArgs, RepliqueValue, replique_command, replique_function,
     };
-    pub use replique::dialogue::{NodeName, Tag, Value, ValueType};
+    pub use replique::dialogue::{Markup, NodeName, Tag, Value, ValueType};
 
     pub use crate::asset::*;
     pub use crate::call::args::*;

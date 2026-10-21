@@ -1,0 +1,8 @@
+:= start
+[let $name = "Léa"]
+Alice: #happy <b>Bonjour [$name]</b>, <pause=0.5/>ça va ? #sound:a01
+Bob: <wave speed=10 amplitude=2>Très <i>bien</i></wave>, merci.
+Bob: I <3 you, a < b, and \<b> is plain text.
+-> <color=#ff0000>Partir</color> [if true]
+-> <link="the old mill">Le moulin</link>
+---

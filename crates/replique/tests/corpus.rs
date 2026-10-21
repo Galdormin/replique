@@ -66,6 +66,9 @@ fn render_text(src: &Src, parts: &[replique::parser::Spanned<TextPart>]) -> Stri
             TextPart::Expression(_) => {
                 format!("[{}]", &src.raw[part.span.start..part.span.end])
             }
+            TextPart::Open(_) | TextPart::Close(_) | TextPart::Marker(_) => {
+                src.raw[part.span.start..part.span.end].to_owned()
+            }
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -256,6 +259,7 @@ corpus!(
     loops,
     has,
     tags,
+    markup,
     choice_conditions,
     // Degraded corpus
     unclosed,
@@ -279,5 +283,6 @@ corpus!(
     bad_loops,
     bad_has,
     bad_tags,
+    bad_markup,
     bad_choice_conditions,
 );

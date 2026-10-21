@@ -25,7 +25,7 @@ use crate::{
     parser::{Spanned, ast},
 };
 
-pub use crate::parser::Tag;
+pub use crate::parser::{MarkerData, Markup, Tag};
 
 pub(crate) mod builder;
 pub mod compiler;
@@ -227,6 +227,12 @@ pub(crate) struct TextLine {
 pub(crate) enum TextPart {
     Text(String),
     Expression(Expr),
+    /// `<b>` or `<wave speed=10>`
+    Open(MarkerData),
+    /// `</b>`
+    Close,
+    /// `<pause=0.5/>`
+    Marker(MarkerData),
 }
 
 impl TryFrom<ast::TextPart> for TextPart {
@@ -236,6 +242,9 @@ impl TryFrom<ast::TextPart> for TextPart {
         match value {
             ast::TextPart::Text(s) => Ok(TextPart::Text(s)),
             ast::TextPart::Expression(expr) => Ok(TextPart::Expression(expr.try_into()?)),
+            ast::TextPart::Open(data) => Ok(TextPart::Open(data)),
+            ast::TextPart::Close(_) => Ok(TextPart::Close),
+            ast::TextPart::Marker(data) => Ok(TextPart::Marker(data)),
         }
     }
 }
