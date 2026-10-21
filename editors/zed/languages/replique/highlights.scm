@@ -28,6 +28,9 @@
 ; `#angry` or `#sound:alice_01`, on a line or on a choice
 (tag) @attribute
 
+; `<b>`, `</b>` or `<pause=0.5/>`, on a line or on a choice
+(markup) @tag
+
 ; `[$nom]` read in the middle of a line
 (interpolation
   [
