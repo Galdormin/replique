@@ -21,7 +21,10 @@ use replique::{
     vm::ResumeEvent,
 };
 
-use crate::call::DialogueToken;
+use crate::{
+    call::DialogueToken,
+    markup::{Piece, pieces},
+};
 
 /// A line of dialogue is ready to be displayed.
 ///
@@ -44,6 +47,14 @@ pub struct DialogueLine {
     pub tags: Vec<Tag>,
     /// The `<markup>` of the line.
     pub markups: Vec<Markup>,
+}
+
+impl DialogueLine {
+    /// The text cut where its markups start and end, with the markups over
+    /// each run. See [`markup`](crate::markup) for how to read it.
+    pub fn pieces(&self) -> Vec<Piece<'_>> {
+        pieces(&self.text, &self.markups)
+    }
 }
 
 /// The dialogue reached a `>>` command.
@@ -99,6 +110,14 @@ pub struct DialogueChoice {
     pub markups: Vec<Markup>,
     /// If the choice is available
     pub available: bool,
+}
+
+impl DialogueChoice {
+    /// The text cut where its markups start and end, with the markups over
+    /// each run. See [`markup`](crate::markup) for how to read it.
+    pub fn pieces(&self) -> Vec<Piece<'_>> {
+        pieces(&self.text, &self.markups)
+    }
 }
 
 /// The dialogue reached its end.

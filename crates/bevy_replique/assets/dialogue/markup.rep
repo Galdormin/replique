@@ -1,0 +1,16 @@
+:= start
+Alice: Hi! How are you?
+Bob: Great, and you? Did you prepare the afternoon meeting?
+Alice: <b>Not at all</b>, I was too tired yesterday. I'll get to it right away.
+-> <i>Good luck then!</i>
+    Alice: See you later!
+-> I can help if you want.
+    Alice: <i>Thanks</i>, I'd like that. Meet at the break?
+    Bob: Perfect, see you!
+=> meeting
+---
+
+:= meeting
+Caroline: <b>Hello everyone</b>, now that we are all here we can start.
+Caroline: Alice... You can start...
+---

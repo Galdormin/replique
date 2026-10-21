@@ -1,22 +1,18 @@
 //! The markup of a text: `Alice: <wave>Hello</wave> <pause=0.5/>there`.
 //!
-//! A markup says how a piece of text is shown rather than what it says: an
-//! effect, a colour, a pause. Replique does not draw anything, so it gives the
-//! markup to the host as it is written, along with the part of the text it
-//! covers, and leaves the meaning to the host.
+//! Replique gives the markup to the host as it is written, along with
+//! the part of the text it covers and leaves the meaning to the host.
 //!
 //! Three shapes, read in the text of a line or of a choice:
 //!
-//! - `<name>` opens a markup, and `</name>` closes it. What is between them,
-//!   inline expressions included, is what it covers. Markups nest, and are
-//!   closed in the reverse order they are opened.
+//! - `<name>` opens a markup, and `</name>` closes it.
 //! - `<name/>` stands on its own, at a position of the text.
 //! - Either can take a value, `<pause=0.5/>`, and attributes,
-//!   `<wave speed=10 amplitude=2>`. A value is a word, or a text between
-//!   quotes when it holds blanks: `<link="the old mill">`.
+//!   `<wave speed=10 amplitude=2>`. A value is a [`String`], use `"`
+//!   when the text holds blanks: `<link="the old mill">`.
 //!
-//! A `<` only opens a markup when a letter, a `_` or a `/` follows it, so
-//! `I <3 you` and `a < b` are text, and `\<` writes a plain `<`.
+//! A `<` only opens a markup when a letter, a `_` or a `/` directly follows it,
+//! so `I <3 you` and `a < b` are text, and `\<` writes a plain `<`.
 
 use std::ops::Range;
 
@@ -86,8 +82,7 @@ pub(crate) enum MarkupTag {
     Marker(MarkerData),
 }
 
-/// Whether the `<` at byte `at` of `text` opens something meant as a markup:
-/// a letter, a `_` or a `/` follows it, and no `\` comes before.
+/// Whether the `<` at byte `at` of `text` opens something meant as a markup.
 pub(crate) fn is_markup_start(text: &str, at: usize) -> bool {
     let escaped = text[..at].ends_with('\\');
     let after = text[at + 1..].chars().next();
