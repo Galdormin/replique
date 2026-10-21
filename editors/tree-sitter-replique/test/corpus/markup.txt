@@ -1,0 +1,103 @@
+================================================================================
+Markups in a line
+================================================================================
+
+Alice: The <b>king</b> is coming <i>tonight</i>.
+Bob: <wave speed=10 amplitude=2>Tonight?</wave><pause=0.5/> Really
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (say
+    (speaker)
+    (text
+      (text_chunk)
+      (markup)
+      (text_chunk)
+      (markup)
+      (text_chunk)
+      (markup)
+      (text_chunk)
+      (markup)
+      (text_chunk)))
+  (say
+    (speaker)
+    (text
+      (markup)
+      (text_chunk)
+      (markup)
+      (markup)
+      (text_chunk))))
+
+================================================================================
+Markups with tags, expressions and quoted values
+================================================================================
+
+<b>Narration</b> in bold
+Alice: Meet me at <link="the old mill">the mill</link> #happy
+Alice: <b>[$name]</b>!
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (say
+    (text
+      (markup)
+      (text_chunk)
+      (markup)
+      (text_chunk)))
+  (say
+    (speaker)
+    (text
+      (text_chunk)
+      (markup)
+      (text_chunk)
+      (markup)
+      (tag)))
+  (say
+    (speaker)
+    (text
+      (markup)
+      (interpolation
+        (variable))
+      (markup)
+      (text_chunk))))
+
+================================================================================
+Markups in a choice
+================================================================================
+
+-> <b>Help</b> them [if $a < 3]
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (choice
+    (text
+      (markup)
+      (text_chunk)
+      (markup)
+      (text_chunk))
+    (choice_condition
+      (binary_expression
+        (variable)
+        (number)))))
+
+================================================================================
+A less-than that opens no markup is text
+================================================================================
+
+Alice: I <3 you, a < b, and \<b> is not bold <
+\<b> at the start
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (say
+    (speaker)
+    (text
+      (text_chunk)
+      (text_chunk)))
+  (say
+    (text
+      (text_chunk))))
