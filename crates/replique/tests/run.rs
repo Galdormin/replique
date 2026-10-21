@@ -10,7 +10,7 @@
 //! is the point — the snapshot reads like a transcript.
 
 use replique::RepliqueFile;
-use replique::dialogue::Value;
+use replique::dialogue::{Markup, Value};
 use replique::vm::{DialogueEvent, DialogueVm, ResumeEvent};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -18,6 +18,28 @@ use std::fmt::Write;
 /// Events walked before the run is called a loop. Well above what a corpus
 /// file needs, and low enough that a mistake fails instead of hanging.
 const MAX_EVENTS: usize = 200;
+
+/// One line for each markup, with the piece of `text` it covers, so a range
+/// that is off by a byte shows in the snapshot.
+fn render_markups(out: &mut String, text: &str, markups: &[Markup]) {
+    for markup in markups {
+        let value = markup
+            .value
+            .as_ref()
+            .map_or(String::new(), |value| format!("={value}"));
+        let attrs: String = markup
+            .attrs
+            .iter()
+            .map(|(key, value)| format!(" {key}={value}"))
+            .collect();
+        let _ = writeln!(
+            out,
+            "  markup <{}{value}{attrs}> {:?}",
+            markup.name,
+            &text[markup.range.clone()]
+        );
+    }
+}
 
 fn trace(src: &str, entry: &str) -> String {
     let file = RepliqueFile::from_source(src);
@@ -38,10 +60,12 @@ fn trace(src: &str, entry: &str) -> String {
                 speaker,
                 text,
                 tags,
+                markups,
             }) => {
                 let speaker = speaker.unwrap_or_else(|| "-".to_owned());
                 let tags: String = tags.iter().map(|tag| format!(" {tag}")).collect();
                 let _ = writeln!(out, "say {speaker} {text:?}{tags}");
+                render_markups(&mut out, &text, &markups);
                 vm.resume(ResumeEvent::Advance)
             }
             Ok(DialogueEvent::Command { name, args, .. }) => {
@@ -57,6 +81,7 @@ fn trace(src: &str, entry: &str) -> String {
                         let tags: String = choice.tags.iter().map(|t| format!(" {t}")).collect();
                         let _ = writeln!(out, "  tags {index}{tags}");
                     }
+                    render_markups(&mut out, &choice.text, &choice.markups);
                 }
                 let _ = writeln!(out, "  pick 0 {:?}", choices[0].text);
                 vm.resume(ResumeEvent::Select(0))
@@ -144,4 +169,5 @@ run!(
     (loops, "start"),
     (has, "start"),
     (tags, "start"),
+    (markup, "start"),
 );

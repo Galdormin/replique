@@ -1,0 +1,23 @@
+---
+source: crates/replique/tests/corpus.rs
+expression: "render(& src, & parsed)"
+---
+== nodes ==
+node start
+  line Alice "<wave speed>Bonjour" @2:1 "Alice: <wave speed>Bonjour</wave>"
+  line Alice <b> "jamais fermé" @3:1 "Alice: <b>jamais fermé"
+  line Alice "fermé" " sans ouverture" @4:1 "Alice: fermé</b> sans ouverture"
+  line Alice <b> <i> "croisés" </i> @5:1 "Alice: <b><i>croisés</b></i>"
+  line Alice <wave speed=1 speed=2> "deux fois" </wave> @6:1 "Alice: <wave speed=1 speed=2>deux fois</wave>"
+  line Alice "<link=\"pas de fin>texte" @7:1 "Alice: <link=\"pas de fin>texte"
+
+== diagnostics ==
+error malformed-markup @2:8 "<wave speed>"
+error stray-markup-close @2:27 "</wave>"
+error unclosed-markup @3:8 "<b>"
+error stray-markup-close @4:14 "</b>"
+error mismatched-markup-close @5:22 "</b>"
+  label opened here @5:11 "<i>"
+error unclosed-markup @5:8 "<b>"
+warning duplicate-markup-attribute @6:8 "<wave speed=1 speed=2>"
+error malformed-markup @7:8 "<link=\"pas de fin>"

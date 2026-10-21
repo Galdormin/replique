@@ -15,18 +15,18 @@
 // blank: one that could would take the blank before a tag along with it, and
 // hand it to the tag.
 const REST_OF_LINE =
-  /(([^\n\[/# \t]|\/[^\/\n])#*|#[^A-Za-z_\n\[/#])(([^\n\[/# \t]|\/[^\/\n])#*|[ \t]|#[^A-Za-z_\n\[/#])*/;
+  /(([^\n\[/# \t<\\]|\\[^\n\[]|\/[^\/\n]|<[^A-Za-z_/\n\[#])#*|#[^A-Za-z_\n\[/#<])(([^\n\[/# \t<\\]|\\[^\n\[]|\/[^\/\n]|<[^A-Za-z_/\n\[#])#*|[ \t]|#[^A-Za-z_\n\[/#<])*/;
 
 // Same, but stopping at the first `:` as well: what precedes a speaker colon.
 const UNTIL_COLON =
-  /#*(([^\n:\[/# \t]|\/[^\/\n:])#*|[ \t]|#[^A-Za-z_\n:\[/#])*/;
+  /#*(([^\n:\[/# \t<\\]|\\[^\n\[:]|\/[^\/\n:]|<[^A-Za-z_/\n\[#:])#*|[ \t]|#[^A-Za-z_\n:\[/#<])*/;
 
 // First character of a line that carries text rather than a marker. A marker
 // character is allowed when the one after it cannot complete a marker: `-> a`
-// is a choice, `-5 degrees` is text. A `<` is text unless it opens a `<=>`.
-// A `#` is left to the tag it may open.
+// is a choice, `-5 degrees` is text. A `<` is text unless it opens a `<=>` or
+// a markup. A `#` is left to the tag it may open.
 const TEXT_HEAD =
-  /[^\n\-=:>\[/ \t#<]|[-=>][^-=:>\n]|<[^=\n]|<=[^>\n]|\/[^\/\n]/;
+  /[^\n\-=:>\[/ \t#<\\]|\\[^\n\[]|[-=>][^-=:>\n]|<[^=A-Za-z_/\n]|<=[^>\n]|\/[^\/\n]/;
 
 module.exports = grammar({
   name: "replique",
@@ -86,8 +86,7 @@ module.exports = grammar({
       ),
 
     // -> I am sick [if $player.is_sick]
-    choice_condition: ($) =>
-      seq("[if", field("condition", $._expression), "]"),
+    choice_condition: ($) => seq("[if", field("condition", $._expression), "]"),
 
     // >> play("bell", 0.5) and >> await play_anim("wave")
     command: ($) =>
@@ -152,7 +151,9 @@ module.exports = grammar({
         $.text_chunk,
         $.interpolation,
         $.tag,
+        $.markup,
         alias($._lone_hash, $.text_chunk),
+        alias($._lone_angle, $.text_chunk),
       ),
 
     // A line with no speaker.
@@ -163,7 +164,9 @@ module.exports = grammar({
             alias($._bare_text, $.text_chunk),
             $.interpolation,
             $.tag,
+            $.markup,
             alias($._lone_hash, $.text_chunk),
+            alias($._lone_angle, $.text_chunk),
           ),
           repeat($._text_part),
         ),
@@ -177,6 +180,16 @@ module.exports = grammar({
     // A `#` that opens no tag and that no run of text took: at the end of a
     // line, or right before a `[`.
     _lone_hash: (_) => token(prec(-1, "#")),
+
+    // <b>, </b>, <pause=0.5/> or <wave speed=10 amplitude=2>, in a text.
+    // Kept as a single token: what is inside is only words and values, and
+    // whether the markups close in order is the business of `replique-lsp`.
+    markup: (_) =>
+      token(/<\/?[A-Za-z_][A-Za-z0-9_-]*([^<>\n"]|"([^"\\\n]|\\.)*")*>/),
+
+    // A `<` that opens no markup and that no run of text took: at the end of
+    // a line, or right before a `[` or a `#`.
+    _lone_angle: (_) => token(prec(-1, "<")),
 
     // [$nom] or [$argent * 100], read in the middle of a line.
     interpolation: ($) => seq("[", $._expression, "]"),

@@ -174,6 +174,17 @@ pub enum DiagnosticKind {
     MisplacedTag(String),
     /// The same tag name twice on a line: `#mood:angry Hi #mood:sad`.
     DuplicateTag(String),
+    /// A `<` followed by a letter or a `/` that does not make a markup:
+    /// `<wave speed>`, `<b` with no `>`.
+    MalformedMarkup,
+    /// `<b>` that the line never closes.
+    UnclosedMarkup(String),
+    /// `</b>` while no markup is open.
+    StrayMarkupClose(String),
+    /// `</b>` while the markup open last is another one: `<b><i>x</b></i>`.
+    MismatchedMarkupClose { expected: String, found: String },
+    /// The same attribute twice in a markup: `<wave speed=1 speed=2>`.
+    DuplicateMarkupAttr(String),
     /// The speaker of a line is unknown in the schema.
     UnknownSpeaker(String),
     /// The tag is unknown to the schema.
@@ -244,6 +255,10 @@ impl DiagnosticKind {
             | ExpectedColon
             | ExpectedKey
             | StrayLoopControl(_)
+            | MalformedMarkup
+            | UnclosedMarkup(_)
+            | StrayMarkupClose(_)
+            | MismatchedMarkupClose { .. }
             | BuiltinArity { .. } => Severity::Error,
 
             EmptyNode
@@ -255,6 +270,7 @@ impl DiagnosticKind {
             | DuplicateKey(_)
             | MisplacedTag(_)
             | DuplicateTag(_)
+            | DuplicateMarkupAttr(_)
             | UnknownSpeaker(_)
             | UnknownTag(_)
             | UnknownCommand(_)
@@ -318,6 +334,11 @@ impl DiagnosticKind {
             BuiltinArity { .. } => "builtin-arity",
             MisplacedTag(_) => "misplaced-tag",
             DuplicateTag(_) => "duplicate-tag",
+            MalformedMarkup => "malformed-markup",
+            UnclosedMarkup(_) => "unclosed-markup",
+            StrayMarkupClose(_) => "stray-markup-close",
+            MismatchedMarkupClose { .. } => "mismatched-markup-close",
+            DuplicateMarkupAttr(_) => "duplicate-markup-attribute",
             UnknownSpeaker(_) => "unknown-speaker",
             UnknownTag(_) => "unknown-tag",
             UnknownCommand(_) => "unknown-command",
@@ -441,6 +462,19 @@ impl fmt::Display for DiagnosticKind {
                 "`{word}` is read as text: a tag is a word at the start or the end of a line, and `\\#` writes a plain `#`"
             ),
             DuplicateTag(name) => write!(f, "tag `#{name}` is given more than once"),
+            MalformedMarkup => {
+                f.write_str("this `<` does not open a valid markup, and `\\<` writes a plain `<`")
+            }
+            UnclosedMarkup(name) => write!(f, "`<{name}>` is never closed on its line"),
+            StrayMarkupClose(name) => write!(f, "`</{name}>` closes no open markup"),
+            MismatchedMarkupClose { expected, found } => write!(
+                f,
+                "`</{found}>` found while `<{expected}>` is the markup to close first"
+            ),
+            DuplicateMarkupAttr(key) => write!(
+                f,
+                "attribute `{key}` is given more than once, only the first value is read"
+            ),
             BuiltinArity {
                 name,
                 got,

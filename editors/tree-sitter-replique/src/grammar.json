@@ -444,11 +444,11 @@
         "members": [
           {
             "type": "PATTERN",
-            "value": "[^\\n\\-=:>\\[/ \\t#<]|[-=>][^-=:>\\n]|<[^=\\n]|<=[^>\\n]|\\/[^\\/\\n]"
+            "value": "[^\\n\\-=:>\\[/ \\t#<\\\\]|\\\\[^\\n\\[]|[-=>][^-=:>\\n]|<[^=A-Za-z_/\\n]|<=[^>\\n]|\\/[^\\/\\n]"
           },
           {
             "type": "PATTERN",
-            "value": "#*(([^\\n:\\[/# \\t]|\\/[^\\/\\n:])#*|[ \\t]|#[^A-Za-z_\\n:\\[/#])*"
+            "value": "#*(([^\\n:\\[/# \\t<\\\\]|\\\\[^\\n\\[:]|\\/[^\\/\\n:]|<[^A-Za-z_/\\n\\[#:])#*|[ \\t]|#[^A-Za-z_\\n:\\[/#<])*"
           },
           {
             "type": "STRING",
@@ -467,11 +467,11 @@
             "members": [
               {
                 "type": "PATTERN",
-                "value": "[^\\n\\-=:>\\[/ \\t#<]|[-=>][^-=:>\\n]|<[^=\\n]|<=[^>\\n]|\\/[^\\/\\n]"
+                "value": "[^\\n\\-=:>\\[/ \\t#<\\\\]|\\\\[^\\n\\[]|[-=>][^-=:>\\n]|<[^=A-Za-z_/\\n]|<=[^>\\n]|\\/[^\\/\\n]"
               },
               {
                 "type": "PATTERN",
-                "value": "#*(([^\\n:\\[/# \\t]|\\/[^\\/\\n:])#*|[ \\t]|#[^A-Za-z_\\n:\\[/#])*"
+                "value": "#*(([^\\n:\\[/# \\t<\\\\]|\\\\[^\\n\\[:]|\\/[^\\/\\n:]|<[^A-Za-z_/\\n\\[#:])#*|[ \\t]|#[^A-Za-z_\\n:\\[/#<])*"
               }
             ]
           },
@@ -487,7 +487,7 @@
                 "members": [
                   {
                     "type": "PATTERN",
-                    "value": "(([^\\n\\[/# \\t]|\\/[^\\/\\n])#*|#[^A-Za-z_\\n\\[/#])(([^\\n\\[/# \\t]|\\/[^\\/\\n])#*|[ \\t]|#[^A-Za-z_\\n\\[/#])*"
+                    "value": "(([^\\n\\[/# \\t<\\\\]|\\\\[^\\n\\[]|\\/[^\\/\\n]|<[^A-Za-z_/\\n\\[#])#*|#[^A-Za-z_\\n\\[/#<])(([^\\n\\[/# \\t<\\\\]|\\\\[^\\n\\[]|\\/[^\\/\\n]|<[^A-Za-z_/\\n\\[#])#*|[ \\t]|#[^A-Za-z_\\n\\[/#<])*"
                   },
                   {
                     "type": "BLANK"
@@ -530,10 +530,23 @@
           "name": "tag"
         },
         {
+          "type": "SYMBOL",
+          "name": "markup"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "SYMBOL",
             "name": "_lone_hash"
+          },
+          "named": true,
+          "value": "text_chunk"
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_lone_angle"
           },
           "named": true,
           "value": "text_chunk"
@@ -567,10 +580,23 @@
                 "name": "tag"
               },
               {
+                "type": "SYMBOL",
+                "name": "markup"
+              },
+              {
                 "type": "ALIAS",
                 "content": {
                   "type": "SYMBOL",
                   "name": "_lone_hash"
+                },
+                "named": true,
+                "value": "text_chunk"
+              },
+              {
+                "type": "ALIAS",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_lone_angle"
                 },
                 "named": true,
                 "value": "text_chunk"
@@ -605,6 +631,24 @@
         }
       }
     },
+    "markup": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "<\\/?[A-Za-z_][A-Za-z0-9_-]*([^<>\\n\"]|\"([^\"\\\\\\n]|\\\\.)*\")*>"
+      }
+    },
+    "_lone_angle": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": -1,
+        "content": {
+          "type": "STRING",
+          "value": "<"
+        }
+      }
+    },
     "interpolation": {
       "type": "SEQ",
       "members": [
@@ -629,7 +673,7 @@
         "value": 1,
         "content": {
           "type": "PATTERN",
-          "value": "(([^\\n\\[/# \\t]|\\/[^\\/\\n])#*|#[^A-Za-z_\\n\\[/#])(([^\\n\\[/# \\t]|\\/[^\\/\\n])#*|[ \\t]|#[^A-Za-z_\\n\\[/#])*"
+          "value": "(([^\\n\\[/# \\t<\\\\]|\\\\[^\\n\\[]|\\/[^\\/\\n]|<[^A-Za-z_/\\n\\[#])#*|#[^A-Za-z_\\n\\[/#<])(([^\\n\\[/# \\t<\\\\]|\\\\[^\\n\\[]|\\/[^\\/\\n]|<[^A-Za-z_/\\n\\[#])#*|[ \\t]|#[^A-Za-z_\\n\\[/#<])*"
         }
       }
     },

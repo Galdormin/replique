@@ -904,6 +904,10 @@
           "named": true
         },
         {
+          "type": "markup",
+          "named": true
+        },
+        {
           "type": "tag",
           "named": true
         },
@@ -1204,6 +1208,10 @@
   },
   {
     "type": "identifier",
+    "named": true
+  },
+  {
+    "type": "markup",
     "named": true
   },
   {

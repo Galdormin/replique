@@ -1,0 +1,17 @@
+---
+source: crates/replique/tests/run.rs
+expression: "trace(src, \"start\")"
+---
+  $name = "Léa"
+say Alice "Bonjour Léa, ça va ?" #happy #sound:a01
+  markup <b> "Bonjour Léa"
+  markup <pause=0.5> ""
+say Bob "Très bien, merci."
+  markup <wave speed=10 amplitude=2> "Très bien"
+  markup <i> "bien"
+say Bob "I <3 you, a < b, and <b> is plain text."
+choices ["Partir", "Le moulin"]
+  markup <color=#ff0000> "Partir"
+  markup <link=the old mill> "Le moulin"
+  pick 0 "Partir"
+end

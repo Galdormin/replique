@@ -58,6 +58,37 @@
 //! [`Choice`]: vm::Choice
 //! [`DialogueEvent::Choices`]: vm::DialogueEvent::Choices
 //!
+//! # Markup
+//!
+//! A `<markup>` marks some piece of text: `<wave>Hello</wave>`, `<pause=0.5/>`.
+//!
+//! ```rust
+//! use replique::RepliqueFile;
+//! use replique::vm::{DialogueEvent, DialogueVm};
+//!
+//! let file = RepliqueFile::from_source(
+//!     ":= start\n[let $name = \"Bob\"]\nAlice: <wave speed=2>Hi [$name]</wave>!<pause=0.5/>\n---\n",
+//! );
+//!
+//! let mut vm = DialogueVm::default();
+//! let DialogueEvent::Say { text, markups, .. } =
+//!     vm.start(file.dialogue.unwrap(), "start").unwrap()
+//! else {
+//!     panic!("expected a line");
+//! };
+//!
+//! assert_eq!(text, "Hi Bob!");
+//! assert_eq!(&text[markups[0].range.clone()], "Hi Bob");
+//! assert_eq!(markups[0].attr("speed"), Some("2"));
+//! assert_eq!(markups[1].name, "pause");
+//! assert!(markups[1].range.is_empty());
+//! ```
+//!
+//! The ranges are in bytes, so `&text[range]` is the piece of text a markup
+//! covers. See [`parser::markups`] for what a markup can hold.
+//!
+//! [`Markup`]: dialogue::Markup
+//!
 //! # Schema
 //!
 //! With a [`RepliqueSchema`], the parsed dialogue can be validated against

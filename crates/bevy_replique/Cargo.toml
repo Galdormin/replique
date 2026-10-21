@@ -18,4 +18,10 @@ bevy = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-bevy = { version = "0.20", default-features = false, features = ["ui", "2d"] }
+# `system_font_discovery` gives the examples the bold and italic faces of the
+# system fonts, which the font Bevy embeds does not have.
+bevy = { version = "0.20", default-features = false, features = [
+    "ui",
+    "2d",
+    "system_font_discovery",
+] }

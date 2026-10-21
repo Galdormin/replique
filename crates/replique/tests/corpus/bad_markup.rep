@@ -1,0 +1,8 @@
+:= start
+Alice: <wave speed>Bonjour</wave>
+Alice: <b>jamais fermé
+Alice: fermé</b> sans ouverture
+Alice: <b><i>croisés</b></i>
+Alice: <wave speed=1 speed=2>deux fois</wave>
+Alice: <link="pas de fin>texte
+---

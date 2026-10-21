@@ -12,6 +12,7 @@ use crate::{
         },
         expr::{Expr, ValueType, pratt},
         lines::{LineKind, RawLine, split_lines, strip_bracket},
+        markups::{MarkerData, MarkupTag, is_markup_start, parse_markup},
         tags::{Tag, split_tags, tag_starts, unescape},
     },
 };
@@ -222,6 +223,13 @@ impl Value {
 pub enum TextPart {
     Text(String),
     Expression(Expr),
+    /// `<b>`: what follows, up to the matching close, is under that markup.
+    Open(MarkerData),
+    /// `</b>`, with the name it closes. The parser has already checked it is
+    /// the markup open last.
+    Close(String),
+    /// `<pause/>`, at a position of the text.
+    Marker(MarkerData),
 }
 
 pub fn parse(src: &str) -> Parsed {
@@ -942,12 +950,13 @@ impl<'a> Parser<'a> {
     fn parse_text_line(&mut self, text: Spanned<&str>) -> Vec<Spanned<TextPart>> {
         let Spanned { value: text, span } = text;
         let mut parts = Vec::new();
+        let mut markups = vec![];
         let mut rest = 0;
 
         while let Some(open) = text[rest..].find('[') {
             let open = rest + open;
             self.report_misplaced_tags(text, span, rest..open);
-            push_text(&mut parts, text, span, rest..open);
+            self.push_marked_text(&mut parts, &mut markups, text, span, rest..open);
 
             let Some(close) = text[open..].find(']') else {
                 self.diags.push(
@@ -955,6 +964,7 @@ impl<'a> Parser<'a> {
                     DiagnosticKind::UnclosedBracket("[".to_owned()),
                 );
                 push_text(&mut parts, text, span, open..text.len());
+                self.report_unclosed_markups(markups);
                 return parts;
             };
             let close = open + close;
@@ -972,8 +982,103 @@ impl<'a> Parser<'a> {
         }
 
         self.report_misplaced_tags(text, span, rest..text.len());
-        push_text(&mut parts, text, span, rest..text.len());
+        self.push_marked_text(&mut parts, &mut markups, text, span, rest..text.len());
+        self.report_unclosed_markups(markups);
         parts
+    }
+
+    /// Pushes `text[range]`, a piece of text with no expression in it, as the
+    /// text and the markups it is made of.
+    ///
+    /// `open` holds the markups opened so far on the line and not closed yet,
+    /// the last one opened at the end, so that a close is checked against it.
+    fn push_marked_text(
+        &mut self,
+        parts: &mut Vec<Spanned<TextPart>>,
+        open: &mut Vec<Spanned<String>>,
+        text: &str,
+        span: Span,
+        range: std::ops::Range<usize>,
+    ) {
+        let mut from = range.start;
+        let mut search = range.start;
+
+        while let Some(found) = text[search..range.end].find('<') {
+            let at = search + found;
+            search = at + 1;
+            if !is_markup_start(text, at) {
+                continue;
+            }
+
+            let Some((tag, len)) = parse_markup(&text[at..range.end]) else {
+                // Up to the `>` that was meant to end it, or what is left.
+                let end = text[at..range.end]
+                    .find('>')
+                    .map_or(range.end, |close| at + close + 1);
+                self.diags.push(
+                    Span::from_length(span.start + at, end - at),
+                    DiagnosticKind::MalformedMarkup,
+                );
+                continue;
+            };
+
+            push_text(parts, text, span, from..at);
+            let tag_span = Span::from_length(span.start + at, len);
+            from = at + len;
+            search = from;
+
+            match tag {
+                MarkupTag::Open(data) => {
+                    self.report_duplicate_attrs(&data, tag_span);
+                    open.push(Spanned::new(data.name.clone(), tag_span));
+                    parts.push(Spanned::new(TextPart::Open(data), tag_span));
+                }
+                MarkupTag::Marker(data) => {
+                    self.report_duplicate_attrs(&data, tag_span);
+                    parts.push(Spanned::new(TextPart::Marker(data), tag_span));
+                }
+                MarkupTag::Close(name) => match open.last() {
+                    Some(last) if last.value == name => {
+                        open.pop();
+                        parts.push(Spanned::new(TextPart::Close(name), tag_span));
+                    }
+                    Some(last) => self.diags.push_labeled(
+                        tag_span,
+                        DiagnosticKind::MismatchedMarkupClose {
+                            expected: last.value.clone(),
+                            found: name,
+                        },
+                        vec![Label {
+                            span: last.span,
+                            message: "opened here".to_owned(),
+                        }],
+                    ),
+                    None => self
+                        .diags
+                        .push(tag_span, DiagnosticKind::StrayMarkupClose(name)),
+                },
+            }
+        }
+
+        push_text(parts, text, span, from..range.end);
+    }
+
+    /// Reports every markup a line opened and never closed.
+    fn report_unclosed_markups(&mut self, open: Vec<Spanned<String>>) {
+        for markup in open {
+            self.diags
+                .push(markup.span, DiagnosticKind::UnclosedMarkup(markup.value));
+        }
+    }
+
+    /// Warns about an attribute a markup gives twice.
+    fn report_duplicate_attrs(&mut self, data: &MarkerData, span: Span) {
+        for (at, (key, _)) in data.attrs.iter().enumerate() {
+            if data.attrs[..at].iter().any(|(first, _)| first == key) {
+                self.diags
+                    .push(span, DiagnosticKind::DuplicateMarkupAttr(key.clone()));
+            }
+        }
     }
 
     /// Takes the tags off both ends of `text`, reporting a name given twice.
@@ -1180,8 +1285,121 @@ mod tests {
             .map(|p| match p.value {
                 TextPart::Text(text) => format!("{text:?}"),
                 TextPart::Expression(_) => "[]".to_owned(),
+                TextPart::Open(data) => format!("<{}>", data.name),
+                TextPart::Close(name) => format!("</{name}>"),
+                TextPart::Marker(data) => format!("<{}/>", data.name),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_markup_splits_the_text_it_covers() {
+        assert_eq!(
+            parts("Alice: <wave>Hello</wave> there<pause/>"),
+            ["<wave>", r#""Hello""#, "</wave>", r#"" there""#, "<pause/>"]
+        );
+    }
+
+    #[test]
+    fn a_markup_covers_an_inline_expression() {
+        assert_eq!(
+            parts("Alice: <b>Hi [$name]</b>!"),
+            ["<b>", r#""Hi ""#, "[]", "</b>", r#""!""#]
+        );
+        assert!(codes(&in_node("Alice: <b>Hi [$name]</b>!")).is_empty());
+    }
+
+    #[test]
+    fn markups_nest() {
+        assert_eq!(
+            parts("<b><i>x</i>y</b>"),
+            ["<b>", "<i>", r#""x""#, "</i>", r#""y""#, "</b>"]
+        );
+    }
+
+    #[test]
+    fn a_lone_angle_is_text() {
+        assert_eq!(parts("Alice: I <3 you"), [r#""I <3 you""#]);
+        assert_eq!(parts("Alice: a < b and c > d"), [r#""a < b and c > d""#]);
+        assert_eq!(parts(r"Alice: \<b> is text"), [r#""<b> is text""#]);
+        assert!(codes(&in_node(r"Alice: I <3 you, \<b> is text")).is_empty());
+    }
+
+    #[test]
+    fn a_markup_sits_between_the_tags_of_a_line() {
+        let src = in_node("Alice: #happy <b>Hi</b> #sound:x");
+        let StmtKind::Say { text, tags, .. } = only_stmt(&src) else {
+            panic!("expected a line");
+        };
+
+        assert_eq!(tags.len(), 2);
+        assert_eq!(text.len(), 3);
+        assert!(codes(&src).is_empty());
+    }
+
+    #[test]
+    fn a_choice_reads_its_markups_too() {
+        let StmtKind::Choice { choices } = only_stmt(&in_node("-> <b>Pay</b> now\n-> Leave"))
+        else {
+            panic!("expected a choice group");
+        };
+
+        assert!(matches!(choices[0].text[0].value, TextPart::Open(_)));
+        assert!(matches!(choices[0].text[2].value, TextPart::Close(_)));
+    }
+
+    #[test]
+    fn error_on_a_markup_that_does_not_parse() {
+        for line in [
+            "Alice: <wave speed>Hi",
+            "Alice: Hi <b",
+            r#"Alice: <link="a>b"#,
+        ] {
+            assert_eq!(
+                codes(&in_node(line)),
+                [DiagnosticKind::MalformedMarkup.code()],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_on_markups_that_do_not_close_in_order() {
+        assert_eq!(
+            codes(&in_node("Alice: <b>Hi")),
+            [DiagnosticKind::UnclosedMarkup("b".into()).code()]
+        );
+        assert_eq!(
+            codes(&in_node("Alice: Hi</b>")),
+            [DiagnosticKind::StrayMarkupClose("b".into()).code()]
+        );
+        assert_eq!(
+            codes(&in_node("Alice: <b><i>x</b></i>")),
+            [
+                DiagnosticKind::MismatchedMarkupClose {
+                    expected: "i".into(),
+                    found: "b".into()
+                }
+                .code(),
+                DiagnosticKind::UnclosedMarkup("b".into()).code(),
+            ]
+        );
+        // A markup does not run over to the next line.
+        assert_eq!(
+            codes(&in_node("Alice: <b>Hi\nAlice: there</b>")),
+            [
+                DiagnosticKind::UnclosedMarkup("b".into()).code(),
+                DiagnosticKind::StrayMarkupClose("b".into()).code(),
+            ]
+        );
+    }
+
+    #[test]
+    fn warning_on_an_attribute_given_twice() {
+        assert_eq!(
+            codes(&in_node("Alice: <wave speed=1 speed=2>Hi</wave>")),
+            [DiagnosticKind::DuplicateMarkupAttr("speed".into()).code()]
+        );
     }
 
     #[test]
@@ -2032,6 +2250,7 @@ mod tests {
             .map(|part| match &part.value {
                 TextPart::Text(text) => text.as_str(),
                 TextPart::Expression(_) => "[]",
+                TextPart::Open(_) | TextPart::Close(_) | TextPart::Marker(_) => "<>",
             })
             .collect();
         let tags = tags.iter().map(|tag| tag.value.to_string()).collect();
@@ -2238,6 +2457,7 @@ mod tests {
                     .map(|part| match &part.value {
                         TextPart::Text(text) => text.as_str(),
                         TextPart::Expression(_) => "[]",
+                        TextPart::Open(_) | TextPart::Close(_) | TextPart::Marker(_) => "<>",
                     })
                     .collect();
                 let tags = choice.tags.iter().map(|t| t.value.to_string()).collect();

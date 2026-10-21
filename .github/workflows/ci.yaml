@@ -49,7 +49,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libwayland-dev libxkbcommon-dev libudev-dev
+            libwayland-dev libxkbcommon-dev libudev-dev libfontconfig1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -78,7 +78,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libwayland-dev libxkbcommon-dev libudev-dev
+            libwayland-dev libxkbcommon-dev libudev-dev libfontconfig1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libwayland-dev libxkbcommon-dev libudev-dev
+            libwayland-dev libxkbcommon-dev libudev-dev libfontconfig1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -141,7 +141,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libwayland-dev libxkbcommon-dev libudev-dev
+            libwayland-dev libxkbcommon-dev libudev-dev libfontconfig1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master

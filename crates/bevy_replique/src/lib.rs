@@ -183,13 +183,16 @@
 //! - [`plugin`] is the plugin and its system sets.
 //! - [`runner`] is the [`DialogueRunner`] component driving one dialogue.
 //! - [`message`] is everything the game and a runner send each other.
+//! - [`markup`] cuts the text of a line or of a choice where its markups
+//!   start and end.
 //! - [`call`] is commands, functions, the conversion of their arguments, and
 //!   the subjects and features `has` asks about.
 //!
 //! # Examples
 //!
-//! The [`examples`] directory has five runnable ones, from a minimal UI to
-//! custom commands, functions, features and several dialogues at once:
+//! The [`examples`] directory has six runnable ones, from a minimal UI to
+//! custom commands, functions, features, markups and several dialogues at
+//! once:
 //!
 //! ```sh
 //! cargo run -p bevy_replique --example bevy_simple
@@ -215,6 +218,7 @@
 
 pub mod asset;
 pub mod call;
+pub mod markup;
 pub mod message;
 pub mod plugin;
 pub mod runner;
@@ -223,7 +227,7 @@ pub mod prelude {
     pub use bevy_replique_derive::{
         RepliqueArgs, RepliqueValue, replique_command, replique_function,
     };
-    pub use replique::dialogue::{NodeName, Tag, Value, ValueType};
+    pub use replique::dialogue::{Markup, NodeName, Tag, Value, ValueType};
 
     pub use crate::asset::*;
     pub use crate::call::args::*;
@@ -231,6 +235,7 @@ pub mod prelude {
     pub use crate::call::features::*;
     pub use crate::call::function::*;
     pub use crate::call::*;
+    pub use crate::markup::{Piece, Segment};
     pub use crate::message::*;
     pub use crate::plugin::*;
     pub use crate::runner::*;

@@ -31,6 +31,10 @@ Blocks are indented with four spaces.
 | `[$var]`, `[$a + 1]`   | Insert the value of an expression          |
 | `#name`, `#name:value` | A tag, at the start or the end of the text |
 | `\#word`               | A word that starts with a `#`              |
+| `<b>text</b>`          | A markup over a piece of text              |
+| `<pause=0.5/>`         | A markup standing at a position            |
+| `<wave speed=10>`      | A markup with an attribute                 |
+| `\<`                   | A plain `<`                                |
 
 ## Expressions
 
