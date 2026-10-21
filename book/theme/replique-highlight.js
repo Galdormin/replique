@@ -96,10 +96,16 @@
             begin: /(?:^|[ \t])#[A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z0-9_.\-]+)?(?=\s|$)/,
         };
 
+        // `<b>`, `</b>`, `<pause=0.5/>` and `<wave speed=10>` in a text.
+        const MARKUP = {
+            className: 'tag',
+            begin: /<\/?[A-Za-z_][A-Za-z0-9_-]*(?:[^<>\n"]|"(?:[^"\\\n]|\\.)*")*>/,
+        };
+
         return {
             name: 'Replique',
             aliases: ['rep'],
-            contains: [COMMENT, NODE, NODE_END, COMMAND, CHOICE, STATEMENT, SPEAKER, TAG, INLINE],
+            contains: [COMMENT, NODE, NODE_END, COMMAND, CHOICE, STATEMENT, SPEAKER, TAG, MARKUP, INLINE],
         };
     });
 

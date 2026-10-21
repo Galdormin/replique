@@ -13,6 +13,7 @@
 - [Conditions and loops](syntax/flow.md)
 - [Commands and functions](syntax/commands.md)
 - [Tags](syntax/tags.md)
+- [Markup](syntax/markup.md)
 
 # Using Replique with Bevy
 
@@ -22,3 +23,4 @@
 - [Functions](bevy/functions.md)
 - [Subjects and features](bevy/features.md)
 - [Tags](bevy/tags.md)
+- [Markup](bevy/markup.md)
